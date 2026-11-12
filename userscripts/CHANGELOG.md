@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.53
+- „Alle Trades“: Spalte „nächstes Ziel“ (Abstand des Underlyings zum nächsten nicht ausgeführten Ziel), sortierbar
+
 ## 1.52
 - Fix: offene Orders wurden nur auf der Übersicht erkannt, nicht auf „Meine Orders“ (keine Positionstabelle) – Ziele zeigten „keine Order“. Jetzt werden sie auch dort zugeordnet
 

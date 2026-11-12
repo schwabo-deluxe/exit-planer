@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.52
+// @version      1.53
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.52</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.53</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -1117,7 +1117,9 @@
           ld: pr && pr.price ? limDev(d, pr.price, T) : null,
           gain: ek && q ? q * (px - ek) : null, crv: stopRef ? (T - S) / (S - stopRef) : null };
       }).filter(Boolean);
-      out.push({ id, name: d.uname || '', total, ek, bid, value: total * bid, pl: ek ? total * (bid - ek) : null,
+      const open = zs.filter(z => z.st !== 'ausgeführt');          // nächstes Ziel: erstes noch nicht ausgeführtes über dem Kurs, sonst das nächstliegende
+      const nx = open.find(z => z.dA > 0) || open.slice().sort((a, b) => b.dP - a.dP)[0] || null;
+      out.push({ id, name: d.uname || '', total, nx, nxP: nx ? nx.dP : null, ek, bid, value: total * bid, pl: ek ? total * (bid - ek) : null,
         plP: ek ? (bid / ek - 1) * 100 : null, S, cs, src: ui.src, stock: !!d.stock, ko: stopRef, koA: stopRef ? S - stopRef : null, koP: stopRef ? (S - stopRef) / S * 100 : null, zs,
         risk: ek ? total * (d.stock && stopRef ? Math.max(0, ek - stopRef / fx) : ek) : 0,
         gain: zs.some(z => z.gain != null) ? zs.reduce((a, z) => a + (z.gain || 0), 0) : null, tsAt: d.tsAt || null, ts: d.ts || '',
@@ -1154,7 +1156,7 @@
     if (missing.length) bgLoad(missing);                // Positionen ohne gespeicherte Daten automatisch nachladen
     const noTl = rows.filter(r => (!r.hold || r.hold.approx) && !(+GM_getValue('tlAt:' + r.id, 0) > Date.now() - 6 * 3600000));
     if (noTl.length) bgLoad(noTl.map(r => r.id + '/timeline'));   // Kaufdatum unbekannt: Timeline des Produkts abfragen
-    const val = (r, k) => k === 'name' ? (r.name || r.id) : k === 'z1' ? (r.zs[0] ? r.zs[0].dP : 1e9) : k === 'age' ? -(r.tsAt || 0) : k === 'hold' ? (r.hold ? r.hold.days : -1) : (r[k] == null ? -1e12 : r[k]);
+    const val = (r, k) => k === 'name' ? (r.name || r.id) : k === 'z1' ? (r.zs[0] ? r.zs[0].dP : 1e9) : k === 'nxP' ? (r.nx ? r.nx.dP : 1e9) : k === 'age' ? -(r.tsAt || 0) : k === 'hold' ? (r.hold ? r.hold.days : -1) : (r[k] == null ? -1e12 : r[k]);
     rows.sort((a, b) => { const x = val(a, dashSort.k), y = val(b, dashSort.k); return (x > y ? 1 : x < y ? -1 : 0) * dashSort.dir; });
     const sg = v => v >= 0 ? '+' : '−', eur = v => sg(v) + f(Math.abs(v), 0) + ' €';
     const cls = v => v == null ? '' : v >= 0 ? 'p' : 'n';
@@ -1181,6 +1183,7 @@
         <td>${r.ek ? f(r.ek, 3) : '–'} → ${f(r.bid, 3)} €<div class="${cls(r.pl)}">${r.pl == null ? '' : eur(r.pl) + ' · ' + sg(r.plP) + f(Math.abs(r.plP), 1) + ' %'}</div></td>
         <td><b>${f(r.S, nd(r.S))} ${r.cs}</b><div class="s">${r.stock ? 'Aktie' : r.src === 'stale' ? '<span class="m">Stand Kennzahlen</span>' : r.src === 'preis' ? 'aus Preis' : 'live'}</div></td>
         <td>${r.koP == null ? '<span class="m">kein Stop</span>' : `<span class="${koCls(r.koP)}">−${f(r.koP, 1)} %</span><div class="s">−${f(r.koA, nd(r.koA))} ${r.cs} · ${r.stock ? 'Stop' : 'KO'} ${f(r.ko, nd(r.ko))}</div>`}</td>
+        <td>${r.nx ? `<b class="${cls(r.nx.dA)}">${sg(r.nx.dA)}${f(Math.abs(r.nx.dP), 1)} %</b><div class="s">Z${r.nx.n} · ${f(r.nx.T, nd(r.nx.T))}</div>` : '<span class="s">–</span>'}</td>
         ${[1, 2, 3].map(n => zcell(r.zs.find(z => z.n === n), r)).join('')}
         <td class="${cls(r.gain)}">${r.gain == null ? '–' : eur(r.gain)}</td>
         <td>${r.hold ? `<b style="color:${r.hold.col}">W${r.hold.week}</b> <span class="s" title="${r.hold.approx ? 'erstmals gesehen' : r.hold.dayOnly ? 'Tag aus Timeline (Valuta), ohne Uhrzeit' : ''}">${r.hold.approx ? '≥' : r.hold.dayOnly ? '~' : ''}${r.hold.days} T</span>` : '<span class="s">–</span>'}</td>
@@ -1209,9 +1212,9 @@
         <div class="card"><span class="s">Risiko bei KO/Stop (vom Einstand)</span><b class="n">−${f(ek0, 0)} €</b></div></div>
       ${noBuy.length || dayOnly.length ? `<div class="hint" style="background:#3a3010;border:1px solid #f0c060;color:#f0c060;border-radius:8px;padding:8px 12px;margin-bottom:14px">${noBuy.length ? `⚠ Kaufdatum für ${noBuy.length} von ${rows.length} Positionen unbekannt (Haltedauer mit „≥“ zählt erst ab erstmals gesehen).
         Die Timeline der Produkte wird im Hintergrund abgefragt. Bleibt es unbekannt: auf der <b>Übersicht</b> in der Orders-Liste den Reiter <b>„Ausgeführt“</b> öffnen (ältere Käufe: „Mehr anzeigen“) oder auf der Produktseite auf „Haltedauer“ klicken.<br>` : ''}${dayOnly.length ? `Für ${dayOnly.length} Positionen ist nur der Tag aus der Timeline (Valuta) bekannt. Genaue Kaufzeit: <b>Übersicht → Orders → Reiter „Ausgeführt“</b> öffnen.` : ''}</div>` : ''}
-      <table><tr>${H('name', 'Produkt')}${H('value', 'Stk / Wert')}${H('plP', 'Einstand → Bid')}<th>Underlying</th>${H('koP', 'bis KO (Stop)')}${H('z1', 'Z1')}<th>Z2</th><th>Z3</th>${H('gain', 'erw. Gewinn')}${H('hold', 'Haltedauer')}${H('age', 'Stand')}</tr>
-        ${body || '<tr><td colspan="11" class="s">Noch keine Daten. Produktseiten einmal öffnen.</td></tr>'}
-        ${rows.length ? `<tr class="sum"><td>Summe</td><td>${f(sv, 0)} €</td><td class="${cls(spl)}">${eur(spl)}</td><td></td><td></td><td></td><td></td><td></td><td class="${cls(sg2)}">${eur(sg2)}</td><td></td><td></td></tr>` : ''}
+      <table><tr>${H('name', 'Produkt')}${H('value', 'Stk / Wert')}${H('plP', 'Einstand → Bid')}<th>Underlying</th>${H('koP', 'bis KO (Stop)')}${H('nxP', 'nächstes Ziel')}${H('z1', 'Z1')}<th>Z2</th><th>Z3</th>${H('gain', 'erw. Gewinn')}${H('hold', 'Haltedauer')}${H('age', 'Stand')}</tr>
+        ${body || '<tr><td colspan="12" class="s">Noch keine Daten. Produktseiten einmal öffnen.</td></tr>'}
+        ${rows.length ? `<tr class="sum"><td>Summe</td><td>${f(sv, 0)} €</td><td class="${cls(spl)}">${eur(spl)}</td><td></td><td></td><td></td><td></td><td></td><td></td><td class="${cls(sg2)}">${eur(sg2)}</td><td></td><td></td></tr>` : ''}
       </table>
       <div class="s" style="margin-top:12px">Ohne Gebühren/Steuern. "bis KO" = Abstand des Underlyings zum Knock-out (Totalverlust). Spalten mit Pfeil sind sortierbar.</div>`;
   }
