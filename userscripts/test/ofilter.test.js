@@ -31,3 +31,9 @@ test('Filter endet beim Verlassen der Orders-Seite', () => {
   page({ url: 'https://mein.finanzen-zero.net/uebersicht', store });
   assert.equal(store.ofilter, 'null');
 });
+
+test('Alter Snapshot (ohne Produktseite) belebt verkaufte Position nicht wieder', () => {
+  const store = { bases: J({ [B]: 141 }), ['snap:' + A]: snapNow(SNAP.cu) };   // A verkauft, Snapshot hat noch qty 95
+  page({ url: `https://mein.finanzen-zero.net/meindepot/kaufenverkaufen?isin=${A}&direction=sell&quantity=10`, store });
+  assert.deepEqual(Object.keys(JSON.parse(store.bases)), [B]);
+});

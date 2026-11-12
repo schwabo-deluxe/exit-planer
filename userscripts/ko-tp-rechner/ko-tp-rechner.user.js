@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.50
+// @version      1.51
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.50</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.51</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -610,7 +610,7 @@
     lastD = d;
     if (d.uname) $('sub').textContent = d.uname + ' · ' + isin;
     const av = availFromPage();
-    if (d.qty) bumpBase(isin, d.qty);
+    if (d.qty && liveOk) bumpBase(isin, d.qty);          // nur von der Produktseite: alter Snapshot (Maske, Orders-Liste) würde verkaufte Positionen wiederbeleben
     lastTotal = getBases()[isin] || d.qty || (av ? av.avail : 0);
     const pcs = ['p1', 'p2', 'p3'].map(id => parseFloat($(id).value) || 0);
     pcs.forEach((v, i) => gset('p' + (i + 1), v));

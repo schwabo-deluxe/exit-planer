@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.51
+- Fix: verkaufte Positionen tauchten wieder in der Positionsbasis auf (alter Snapshot aus Verkaufsmaske/Orders-Liste) und wurden in „Alle Trades“ ständig im Hintergrund nachgeladen. Bestand wird nur noch von der Produktseite bzw. Übersicht übernommen
+
 ## 1.50
 - „Alle Trades“: Klick auf ein Ziel öffnet „Meine Orders“, gefiltert auf dieses Produkt (Banner mit „Alle zeigen“; Filter endet beim Verlassen der Seite)
 - Rechner: Erlös je Ziel unter dem Gewinn (= „Geschätztes Ordervolumen“ der Maske)
