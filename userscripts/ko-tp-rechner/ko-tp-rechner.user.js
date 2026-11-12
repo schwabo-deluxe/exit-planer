@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.53
+// @version      1.54
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.53</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.54</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -1161,6 +1161,7 @@
     const sg = v => v >= 0 ? '+' : '−', eur = v => sg(v) + f(Math.abs(v), 0) + ' €';
     const cls = v => v == null ? '' : v >= 0 ? 'p' : 'n';
     const nd = x => Math.abs(x) < 20 ? 4 : 2;
+    const nxCls = p => p <= 0 ? 'b' : p < 10 ? 'p' : p < 50 ? 'm' : 'n';   // Abstand zum nächsten Ziel: blau erreicht, grün < 10 %, gelb < 50 %, rot ab 50 %
     const koCls = p => p < 5 ? 'n' : p < 10 ? 'm' : 'p';
     const age = r => {
       if (!r.tsAt) return `<span class="m">${r.ts || '–'}</span>`;
@@ -1183,7 +1184,7 @@
         <td>${r.ek ? f(r.ek, 3) : '–'} → ${f(r.bid, 3)} €<div class="${cls(r.pl)}">${r.pl == null ? '' : eur(r.pl) + ' · ' + sg(r.plP) + f(Math.abs(r.plP), 1) + ' %'}</div></td>
         <td><b>${f(r.S, nd(r.S))} ${r.cs}</b><div class="s">${r.stock ? 'Aktie' : r.src === 'stale' ? '<span class="m">Stand Kennzahlen</span>' : r.src === 'preis' ? 'aus Preis' : 'live'}</div></td>
         <td>${r.koP == null ? '<span class="m">kein Stop</span>' : `<span class="${koCls(r.koP)}">−${f(r.koP, 1)} %</span><div class="s">−${f(r.koA, nd(r.koA))} ${r.cs} · ${r.stock ? 'Stop' : 'KO'} ${f(r.ko, nd(r.ko))}</div>`}</td>
-        <td>${r.nx ? `<b class="${cls(r.nx.dA)}">${sg(r.nx.dA)}${f(Math.abs(r.nx.dP), 1)} %</b><div class="s">Z${r.nx.n} · ${f(r.nx.T, nd(r.nx.T))}</div>` : '<span class="s">–</span>'}</td>
+        <td>${r.nx ? `<b class="${nxCls(r.nx.dP)}">${r.nx.dA > 0 ? '+' + f(r.nx.dP, 1) + ' %' : 'erreicht'}</b><div class="s">Z${r.nx.n} · ${f(r.nx.T, nd(r.nx.T))}${r.nx.dA > 0 ? '' : ' · ' + sg(r.nx.dA) + f(Math.abs(r.nx.dP), 1) + ' %'}</div>` : '<span class="s">–</span>'}</td>
         ${[1, 2, 3].map(n => zcell(r.zs.find(z => z.n === n), r)).join('')}
         <td class="${cls(r.gain)}">${r.gain == null ? '–' : eur(r.gain)}</td>
         <td>${r.hold ? `<b style="color:${r.hold.col}">W${r.hold.week}</b> <span class="s" title="${r.hold.approx ? 'erstmals gesehen' : r.hold.dayOnly ? 'Tag aus Timeline (Valuta), ohne Uhrzeit' : ''}">${r.hold.approx ? '≥' : r.hold.dayOnly ? '~' : ''}${r.hold.days} T</span>` : '<span class="s">–</span>'}</td>
@@ -1196,7 +1197,7 @@
       #ko-dash table{width:100%;border-collapse:collapse}#ko-dash th{color:#8d98a3;font-weight:500;text-align:left;padding:6px 8px;cursor:pointer;white-space:nowrap;border-bottom:1px solid #333}
       #ko-dash td{padding:8px;border-bottom:1px solid #262a2e;vertical-align:top;white-space:nowrap}#ko-dash tr:hover td{background:#1b1f22}#ko-dash td.zc{cursor:pointer}#ko-dash tr:hover td.zc:hover{background:#22303c}
       #ko-dash a{color:#e6e6e6;font-weight:600;text-decoration:none}#ko-dash a:hover{color:#64b5f6}
-      #ko-dash .s{font-size:11.5px;color:#9aa5b0}#ko-dash .p{color:#4caf50}#ko-dash .n{color:#ff6b6b}#ko-dash .m{color:#f0c060}
+      #ko-dash .s{font-size:11.5px;color:#9aa5b0}#ko-dash .p{color:#4caf50}#ko-dash .n{color:#ff6b6b}#ko-dash .m{color:#f0c060}#ko-dash .b{color:#64b5f6}
       #ko-dash .sum td{font-weight:700;border-top:2px solid #3a3f44;border-bottom:0}
       #ko-dash .cards{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}#ko-dash .card{background:#1b1f22;border:1px solid #2e3338;border-radius:8px;padding:10px 14px;min-width:150px}
       #ko-dash .card b{display:block;font-size:18px}</style>

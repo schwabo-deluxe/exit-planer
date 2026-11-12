@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.54
+- „nächstes Ziel“ farbig nach Abstand: grün < 10 %, gelb 10–50 %, rot ab 50 %, blau = erreicht
+
 ## 1.53
 - „Alle Trades“: Spalte „nächstes Ziel“ (Abstand des Underlyings zum nächsten nicht ausgeführten Ziel), sortierbar
 

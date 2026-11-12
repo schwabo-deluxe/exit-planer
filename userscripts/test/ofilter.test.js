@@ -58,3 +58,15 @@ test('Alle Trades: Spalte "nächstes Ziel" überspringt ausgeführte Ziele und i
   const row = [...p.w.document.querySelectorAll('#ko-dash tr')][1];
   assert.match(row.children[5].textContent, /Z2/);
 });
+
+test('nächstes Ziel: Farben nach Abstand (grün < 10, gelb < 50, rot ab 50, blau erreicht)', () => {
+  const cls = t1 => {
+    const store = { bases: J({ [A]: 95 }), ['t1:' + A]: String(t1), ['snap:' + A]: snapNow(SNAP.cu) };
+    const p = page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store });
+    return [...p.w.document.querySelectorAll('#ko-dash tr')][1].children[5].querySelector('b').className;
+  };
+  const p0 = page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store: { bases: J({ [A]: 95 }), ['t1:' + A]: '9', ['snap:' + A]: snapNow(SNAP.cu) } });
+  const u = +[...p0.w.document.querySelectorAll('#ko-dash tr')][1].children[3].querySelector('b').textContent.replace(/[^\d,]/g, '').replace(',', '.');
+  assert.ok(u > 0);
+  assert.equal(cls(u * 1.05), 'p'); assert.equal(cls(u * 1.2), 'm'); assert.equal(cls(u * 1.6), 'n'); assert.equal(cls(u * 0.95), 'b');
+});
