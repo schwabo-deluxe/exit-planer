@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.46
+// @version      1.47
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.46</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.47</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -340,21 +340,36 @@
     if (!(b[id] >= n)) { b[id] = n; GM_setValue('bases', JSON.stringify(b)); }
   }
   // Übersicht: je Zeile ISIN + zwei Zahlen (Bestand / frei); größere = Gesamtbestand inkl. durch Orders belegter
+  // Kaufzeit aus "Ausgeführt": vom aktuellen Bestand rückwärts (neueste zuerst) Käufe abziehen, Verkäufe addieren;
+  // der Kauf, bei dem der Rest 0 erreicht, eröffnete die laufende Position (exakt). Reicht die Liste nicht so weit zurück
+  // ("Mehr anzeigen"), ist der älteste sichtbare Kauf nur eine Untergrenze.
+  function buyStart(k, total, orders) {
+    const ex = orders.filter(o => o.isin === k && o.side && /ausgeführt|abgerechnet/.test(o.status)).sort((a, b) => b.at - a.at);
+    let rem = total, first = null;
+    for (const o of ex) {
+      if (o.side === 'Kauf') { first = o.at; rem -= o.qty; if (rem <= 1e-9) return { t: o.at, exact: true }; }
+      else rem += o.qty;
+    }
+    return first ? { t: first, exact: false } : null;
+  }
+  function applyBuyDates(orders, bases) {
+    for (const k in bases) {
+      const b = buyStart(k, bases[k], orders), sv = getSince(k);
+      if (!b || (sv && sv.src === 'manual')) continue;
+      if (b.exact) { if (!sv || sv.src !== 'order' || sv.t !== b.t) setSince(k, b.t, 'order'); }
+      else if (!sv || ((sv.src === 'seen' || sv.src === 'tl') && b.t < sv.t)) setSince(k, b.t, 'seen');
+    }
+  }
   function syncPositions(t) {
     const rows = [...t.matchAll(/\b([A-Z]{2}[A-Z0-9]{9}\d)\s+(\d[\d.]*)\s+(\d[\d.]*)\s/g)];
-    if (!rows.length) return;                       // Tabelle noch nicht geladen: nichts löschen
+    const orders = parseOrders(t);
+    if (!rows.length) { applyBuyDates(orders, getBases()); return; }   // Positionstabelle fehlt (z. B. eigene Orders-Seite): nur Kaufdaten, nichts löschen
     const old = getBases(), nu = {};
     for (const m of rows) nu[m[1]] = Math.max(old[m[1]] || 0, num(m[2]), num(m[3]));
     for (const k in old) if (!(k in nu)) { setDone(k, {}); clearTrack(k); }   // Position weg: Häkchen, Haltedauer, Reminder zurücksetzen
     for (const k in nu) if (!getSince(k)) setSince(k, Date.now(), 'seen');
     gset('bases', JSON.stringify(nu));      // verkaufte Positionen fallen weg
-    const orders = parseOrders(t);
-    for (const k in nu) {                          // Kaufdatum aus "Ausgeführt" übernehmen (frühester Kauf), manuell gesetztes bleibt
-      const buys = orders.filter(o => o.isin === k && o.side === 'Kauf' && /ausgeführt|abgerechnet/.test(o.status));
-      if (!buys.length) continue;
-      const cand = Math.min(...buys.map(o => o.at)), sv = getSince(k);
-      if (!sv || sv.src === 'tl' || (sv.src !== 'manual' && (sv.src === 'seen' || cand < sv.t) && cand < (sv.t || Infinity))) setSince(k, cand, 'order');
-    }
+    applyBuyDates(orders, nu);
     const ctx = {
       orders,
       openTab: /aktuell keine offenen Orders/i.test(t) || orders.some(o => o.status === 'offen'),

@@ -1,5 +1,9 @@
 # Changelog KO-TP-Rechner
 
+## 1.47
+- Fix: Kaufdatum wurde auf der Orders-Seite ohne Positionstabelle nicht übernommen
+- Kaufzeit = Beginn der laufenden Position (vom Bestand rückwärts gerechnet, Teilverkäufe/Nachkäufe berücksichtigt); reicht die Liste nicht so weit zurück, gilt der älteste sichtbare Kauf als Untergrenze („≥“)
+
 ## 1.46
 - TP = innerer Wert am Ziel: (Ziel − KO) × BV / EUR/USD. Hängt nicht mehr vom aktuellen Ask ab (Spread, Aufgeld, vorbörsliche Kurse bei altem US-Basiswertkurs); Rückfall auf die Ask-Hochrechnung nur, wenn BV oder EUR/USD fehlen bzw. nicht zum Preis passen
 - Limit-Warnung rechnet das Limit aufs Underlying zurück und warnt ab 0,5 % Abweichung vom Ziel (statt 2 % Preisabweichung zum TP)
