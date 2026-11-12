@@ -69,3 +69,18 @@ test('Bestätigungsseite: OCO/Stop ohne Warnung, Marktorder mit Warnung', () => 
     assert.equal(!!p.w.document.getElementById('ko-limit-banner'), warn, art);
   }
 });
+
+test('Z1-Reminder verschwindet, wenn Z1 geändert wurde und nicht erreicht ist; bleibt beim alten Ziel', () => {
+  const old = Date.now() - 3600000;
+  const low = J({ ...SNAP.cu, fxoAt: Date.now(), tsAt: Date.now() });   // Kurs unter Z1
+  const s1 = store({ ['snap:' + A]: low, ['z1hit:' + A]: old, ['t1:' + A]: '9.5' });   // Altbestand ohne z1t, Ziel weit weg
+  const p1 = page({ url: 'https://mein.finanzen-zero.net/instrument/' + A, store: s1 });
+  assert.equal(p1.$('#slrem').textContent, '');
+  assert.equal(+s1['z1hit:' + A], 0);
+  const s2 = store({ ['snap:' + A]: low, ['z1hit:' + A]: old, ['z1t:' + A]: 6.9 });   // Z1 unverändert, Kurs wieder darunter
+  const p2 = page({ url: 'https://mein.finanzen-zero.net/instrument/' + A, store: s2 });
+  assert.match(p2.$('#slrem').textContent, /Z1 erreicht/);
+  const s3 = store({ ['snap:' + A]: low, ['z1hit:' + A]: old, ['z1t:' + A]: 6.9, ['t1:' + A]: '9.5' });
+  page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store: s3 });
+  assert.equal(+s3['z1hit:' + A], 0, 'auch „Alle Trades“ verwirft den Reminder');
+});

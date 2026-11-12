@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.49
+- Fix: „Z1 erreicht“ blieb stehen, nachdem Z1 geändert wurde. Die Erinnerung gilt jetzt nur für das Ziel, bei dem sie ausgelöst wurde; geändertes und nicht erreichtes Z1 verwirft sie (Rechner und „Alle Trades“)
+
 ## 1.48
 - Fix: offene Orders konnten Z2/Z3 vertauscht zugeordnet werden, wenn die TPs wanderten. Zuordnung jetzt als beste Gesamtlösung: höheres Ziel = höheres Limit, Stückzahl laut Aufteilung zählt mit; bestehende Vertauschungen korrigieren sich beim nächsten Öffnen von „Offen“
 

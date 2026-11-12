@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.48
+// @version      1.49
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.48</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.49</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -344,7 +344,16 @@
     GM_setValue('tlAt:' + id, Date.now());
     return true;
   }
-  function clearTrack(k) { GM_setValue('since:' + k, 'null'); GM_setValue('z1hit:' + k, 0); GM_setValue('slok:' + k, 0); }
+  function clearTrack(k) { GM_setValue('since:' + k, 'null'); GM_setValue('z1hit:' + k, 0); GM_setValue('z1t:' + k, 0); GM_setValue('slok:' + k, 0); }
+  // Z1-Erinnerung gilt nur für den Zielwert, bei dem sie ausgelöst wurde: Ziel geändert und nicht (mehr) erreicht -> verworfen
+  function z1Hit(k, t1, reached) {
+    let h = +GM_getValue('z1hit:' + k, 0) || 0;
+    if (h && (+GM_getValue('z1t:' + k, 0) || 0) !== t1) {
+      if (reached) GM_setValue('z1t:' + k, t1); else { GM_setValue('z1hit:' + k, 0); h = 0; }
+    }
+    if (!h && t1 && reached) { h = Date.now(); GM_setValue('z1hit:' + k, h); GM_setValue('z1t:' + k, t1); }
+    return h;
+  }
   function bumpBase(id, n) {
     if (id && n > 0 && !getSince(id)) setSince(id, Date.now(), 'seen');
     if (!id || !(n > 0)) return;
@@ -582,8 +591,7 @@
     } else $('hold').innerHTML = '<span class="ko-s">Haltedauer unbekannt · Klick: Kaufdatum setzen</span>';
     // Reminder: Z1 erreicht -> Stop-Loss nachziehen
     const dn1 = getDone(isin)[1];
-    if (t1 && ((S >= t1) || (dn1 && dn1.status === 'ausgeführt')) && !GM_getValue('z1hit:' + isin, 0)) GM_setValue('z1hit:' + isin, Date.now());
-    const z1hit = GM_getValue('z1hit:' + isin, 0), slok = GM_getValue('slok:' + isin, 0);
+    const z1hit = z1Hit(isin, t1 || 0, !!t1 && (S >= t1 || !!(dn1 && dn1.status === 'ausgeführt'))), slok = GM_getValue('slok:' + isin, 0);
     if (z1hit && !(slok >= z1hit)) {
       const be = d.ek || base, beU = d.stock ? be * (d.tcur === '$' ? d.fxo : 1) : d.ko + be * (S - d.ko) / d.ask;   // Underlying-Niveau, bei dem das Zertifikat den Einstand wert ist
       const rest = Math.max(0, lastTotal - (dn1 && dn1.status === 'ausgeführt' ? dn1.qty : qs[0]));
@@ -908,7 +916,7 @@
 
   // ---------- Export / Import (Übertragung auf einen anderen PC/Browser) ----------
   // Nur Nutzerdaten; Snapshots, Orders-Listen und EUR/USD entstehen beim nächsten Seitenbesuch neu.
-  const EXPORT_KEY = /^(t[123]:|p[123]$|cap$|rsk$|auto$|bases$|done:|since:|z1hit:|slok:)/;
+  const EXPORT_KEY = /^(t[123]:|p[123]$|cap$|rsk$|auto$|bases$|done:|since:|z1hit:|z1t:|slok:)/;
   const toB64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
     return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const fromB64 = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
@@ -1070,7 +1078,7 @@
         plP: ek ? (bid / ek - 1) * 100 : null, S, cs, src: ui.src, stock: !!d.stock, ko: stopRef, koA: stopRef ? S - stopRef : null, koP: stopRef ? (S - stopRef) / S * 100 : null, zs,
         risk: ek ? total * (d.stock && stopRef ? Math.max(0, ek - stopRef / fx) : ek) : 0,
         gain: zs.some(z => z.gain != null) ? zs.reduce((a, z) => a + (z.gain || 0), 0) : null, tsAt: d.tsAt || null, ts: d.ts || '',
-        hold: holdInfo(id), rem: (+GM_getValue('z1hit:' + id, 0) || 0) > (+GM_getValue('slok:' + id, 0) || 0) });
+        hold: holdInfo(id), rem: z1Hit(id, zs[0] && zs[0].n === 1 ? zs[0].T : 0, !!(zs[0] && zs[0].n === 1 && (S >= zs[0].T || zs[0].st === 'ausgeführt'))) >(+GM_getValue('slok:' + id, 0) || 0) });
     }
     return out;
   }
