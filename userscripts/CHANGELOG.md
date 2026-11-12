@@ -1,5 +1,9 @@
 # Changelog KO-TP-Rechner
 
+## 1.46
+- TP = innerer Wert am Ziel: (Ziel − KO) × BV / EUR/USD. Hängt nicht mehr vom aktuellen Ask ab (Spread, Aufgeld, vorbörsliche Kurse bei altem US-Basiswertkurs); Rückfall auf die Ask-Hochrechnung nur, wenn BV oder EUR/USD fehlen bzw. nicht zum Preis passen
+- Limit-Warnung rechnet das Limit aufs Underlying zurück und warnt ab 0,5 % Abweichung vom Ziel (statt 2 % Preisabweichung zum TP)
+
 ## 1.45
 - Kaufdatum aus der Timeline des Produkts (`/instrument/<ISIN>/timeline`), in „Alle Trades“ automatisch im Hintergrund abgefragt; liefert nur den Tag (Valuta), Anzeige mit „~“
 - „Ausgeführt“ liefert weiter die genaue Kaufzeit und hat Vorrang vor der Timeline

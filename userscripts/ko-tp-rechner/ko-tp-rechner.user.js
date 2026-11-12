@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.45
+// @version      1.46
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -70,13 +70,29 @@
   }
   const underlying = d => underlyingInfo(d).S;
 
-  // Preis = (S - KO) * BV / FX ; FX wird aus aktuellem Ask abgeleitet
+  // TP = innerer Wert am Ziel: (Ziel - KO) * BV / EURUSD (bei €-KO ohne Umrechnung). Hängt nur von KO und Wechselkurs ab,
+  // nicht vom aktuellen Ask (Spread, Aufgeld, vorbörsliche Kurse bei altem Basiswertkurs). Ohne brauchbares BV/EURUSD:
+  // Rückfall auf den aus dem Ask abgeleiteten Faktor (est = true).
+  function koFx(d) {
+    if (d.cur !== '$') return 1;
+    return d.fxo > 0.9 && d.fxo < 1.4 && Date.now() - (d.fxoAt || 0) < 7 * 86400000 ? d.fxo : null;
+  }
   function tpPrice(d, T) {
     if (d.stock) { const fx = d.tcur === '$' ? d.fxo : 1; return { S: underlyingInfo(d).S, fx, price: T / fx }; }
     const S = underlying(d);
-    const fx = (S - d.ko) * d.bv / d.ask;
-    return { S, fx, price: (T - d.ko) * d.bv / fx };
+    let fx = d.bvOk ? koFx(d) : null, est = false;
+    if (fx && d.ask > 0 && S > d.ko && Math.abs(d.ask / ((S - d.ko) * d.bv / fx) - 1) > 0.25) fx = null;   // BV passt nicht zum Preis
+    if (!fx) { fx = (S - d.ko) * d.bv / d.ask; est = true; }
+    return { S, fx, est, price: (T - d.ko) * d.bv / fx };
   }
+  // Underlying-Niveau, bei dem ein Verkaufslimit seinem inneren Wert entspricht (Rückrechnung mit aktuellem KO)
+  function limitU(d, price) {
+    const fx = tpPrice(d, d.stock ? 0 : d.ko + 1).fx;
+    return d.stock ? price * fx : d.ko + price * fx / d.bv;
+  }
+  // Abweichung eines Limits vom Ziel, gemessen am Underlying (%); Warnung ab LIM_TOL
+  const LIM_TOL = 0.5;
+  const limDev = (d, lim, T) => { const u = limitU(d, lim); return { u, dev: (u - T) / T * 100 }; };
   // Aufteilung der Position auf Z1..Zn (ps = Prozent je Ziel, bezogen auf die Gesamtposition).
   // Sobald die kumulierten Prozent 100 erreichen, bekommt dieses Ziel den kompletten Rest.
   const plan = (total, ps) => {
@@ -154,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.45</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.46</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -577,8 +593,8 @@
       rows += `<tr><td class="ko-z">Z${n}</td><td class="${dA >= 0 ? '' : 'ko-neg'}">${sg}${f(Math.abs(dA), 2)} ${cs}<br><span class="ko-s">${sg}${f(Math.abs(dP), 1)} %</span></td><td><b>${f(r.price)} €</b></td><td class="${pct >= 0 ? 'ko-pos' : 'ko-neg'}">${pct >= 0 ? '+' : ''}${f(pct, 0)} %</td>
         <td class="${crv == null ? '' : crvCls(crv)}">${crv == null ? '–' : f(crv)}</td><td>${pq || '–'}</td><td class="${g == null ? '' : g >= 0 ? 'ko-pos' : 'ko-neg'}">${g == null ? '–' : eur0(g)}</td></tr>`;
       if (pr && pr.status !== 'ausgeführt') {
-        const dev = (pr.price / r.price - 1) * 100;
-        if (Math.abs(dev) >= 2) rows += `<tr><td></td><td colspan="6" class="ko-w" style="text-align:left;border-top:0">Order-Limit ${f(pr.price)} € liegt ${dev > 0 ? '+' : ''}${f(dev, 0)} % neben Soll</td></tr>`;
+        const ld = limDev(d, pr.price, T);
+        if (Math.abs(ld.dev) >= LIM_TOL) rows += `<tr><td></td><td colspan="6" class="ko-w" style="text-align:left;border-top:0">Order-Limit ${f(pr.price)} € ≙ ${f(ld.u, nd(ld.u))} ${cs} (${ld.dev > 0 ? '+' : ''}${f(ld.dev, 1)} % ${ld.dev > 0 ? 'über' : 'unter'} Ziel) · Soll ${f(r.price)} €</td></tr>`;
       }
     }
     if (rows) h += `<table><tr><th></th><th>bis Ziel</th><th>TP</th><th>Gewinn %</th><th>CRV</th><th>Stk</th><th>Gewinn €</th></tr>${rows}</table>`;
@@ -941,8 +957,8 @@
       let soll = '';
       const T = nk ? parseFloat($('t' + nk).value) : NaN;
       if (lastD && T) {
-        const tp = tpPrice(lastD, T).price, dev = (o.price / tp - 1) * 100;
-        soll = ` · Soll ${f(tp)} €` + (Math.abs(dev) >= 2 ? ` <b style="color:#ff6b6b">(${dev > 0 ? '+' : ''}${f(dev, 0)} %)</b>` : '');
+        const tp = tpPrice(lastD, T).price, ld = limDev(lastD, o.price, T);
+        soll = ` · Soll ${f(tp)} €` + (Math.abs(ld.dev) >= LIM_TOL ? ` <b style="color:#ff6b6b">(Underlying ${ld.dev > 0 ? '+' : ''}${f(ld.dev, 1)} % neben Ziel)</b>` : '');
       }
       return `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid rgba(128,128,128,.25)">
         <span>${nk ? 'Z' + nk + ' · ' : ''}${o.side || ''} ${f(o.qty, 0)} Stk · Limit <b>${f(o.price)} €</b></span>
@@ -1020,6 +1036,7 @@
         if (!T) return null;
         const tp = tpPrice(d, T).price, pr = dn[n], q = pr ? pr.qty : qs[n - 1], px = pr ? pr.price : tp;
         return { n, T, dA: T - S, dP: (T - S) / S * 100, tp, st: pr ? pr.status : null, lim: pr ? pr.price : null, q,
+          ld: pr && pr.price ? limDev(d, pr.price, T) : null,
           gain: ek && q ? q * (px - ek) : null, crv: stopRef ? (T - S) / (S - stopRef) : null };
       }).filter(Boolean);
       out.push({ id, name: d.uname || '', total, ek, bid, value: total * bid, pl: ek ? total * (bid - ek) : null,
@@ -1073,7 +1090,7 @@
     const zcell = z => !z ? '<td class="s">–</td>' :
       `<td><b>${f(z.T, nd(z.T))}</b> <span class="${cls(z.dA)}">${sg(z.dA)}${f(Math.abs(z.dP), 1)} %</span>
        <div class="s">${sg(z.dA)}${f(Math.abs(z.dA), nd(z.dA))} · TP ${f(z.tp)} € · ${z.q || 0} Stk
-       ${z.st === 'ausgeführt' ? '<span class="p">✓✓</span>' : z.st ? '<span class="p">✓</span>' + (Math.abs(z.lim / z.tp - 1) >= 0.02 ? ` <span class="m">Limit ${f(z.lim)}</span>` : '') : '<span class="m">keine Order</span>'}</div></td>`;
+       ${z.st === 'ausgeführt' ? '<span class="p">✓✓</span>' : z.st ? '<span class="p">✓</span>' + (z.ld && Math.abs(z.ld.dev) >= LIM_TOL ? ` <span class="m" title="Limit entspricht Underlying ${f(z.ld.u, nd(z.ld.u))}">Limit ${f(z.lim)} (${z.ld.dev > 0 ? '+' : ''}${f(z.ld.dev, 1)} %)</span>` : '') : '<span class="m">keine Order</span>'}</div></td>`;
     const H = (k, t) => `<th data-k="${k}">${t}${dashSort.k === k ? (dashSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
     const noBuy = rows.filter(r => !r.hold || r.hold.approx), dayOnly = rows.filter(r => r.hold && r.hold.dayOnly);
     let body = '', sv = 0, spl = 0, sg2 = 0, ek0 = 0;

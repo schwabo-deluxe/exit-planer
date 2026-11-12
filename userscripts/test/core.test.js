@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { core } = require('./harness');
-const { parse, plan, tpPrice, underlyingInfo } = core();
+const { parse, plan, tpPrice, limitU, underlyingInfo } = core();
 
 test('parse: Kupfer-Produktseite', () => {
   const d = parse('Knock-Out: 5,6896 $\nAsk\n5,640€\nBasiswert: COMEX Kupfer\nKeine Werte vorhanden\nAbstand Knock-Out\n0,6314 $\nBezugsverhältnis\n10,00\nMeine Position  (95 Stück)\nEinstandskurs\n5,261 €');
@@ -44,4 +44,23 @@ test('underlyingInfo: falsches Bezugsverhältnis wird verworfen', () => {
 test('underlyingInfo: veralteter EUR/USD (> 3 Tage) -> Kennzahlen', () => {
   const d = { ko: 5.6896, cur: '$', abs: 0.5784, ask: 5.26, bv: 10, bvOk: true, fxo: 1.1167, fxoAt: Date.now() - 5 * 86400000 };
   assert.equal(underlyingInfo(d).src, 'stale');
+});
+
+test('tpPrice: innerer Wert, unabhängig vom Ask (vorbörslicher Ask bei altem Basiswertkurs)', () => {
+  const base = { ko: 296.0, cur: '$', abs: 106.87, und: 402.87, ucur: '$', bv: 0.1, bvOk: true, fxo: 1.15, fxoAt: Date.now() };
+  const a = tpPrice({ ...base, ask: 9.07 }, 535).price, b = tpPrice({ ...base, ask: 9.81 }, 535).price;
+  assert.ok(Math.abs(a - (535 - 296) * 0.1 / 1.15) < 1e-9); assert.equal(a, b);
+});
+
+test('tpPrice: KO in € ohne Umrechnung; falsches BV -> Rückfall auf Ask', () => {
+  const d = { ko: 45.04, cur: '€', und: 54.45, ucur: '€', bv: 1, bvOk: true, ask: 9.55 };
+  assert.ok(Math.abs(tpPrice(d, 68).price - 22.96) < 1e-9);
+  const w = { ...d, bv: 10 };
+  const r = tpPrice(w, 68); assert.equal(r.est, true); assert.ok(Math.abs(r.price - 9.55 * (68 - 45.04) / (54.45 - 45.04)) < 1e-9);
+});
+
+test('limitU: Limit zurück aufs Underlying; KO-Anpassung verschiebt es', () => {
+  const d = { ko: 45.04, cur: '€', und: 54.45, ucur: '€', bv: 1, bvOk: true, ask: 9.55 };
+  assert.ok(Math.abs(limitU(d, 22.96) - 68) < 1e-9);
+  assert.ok(Math.abs(limitU({ ...d, ko: 45.5 }, 22.96) - 68.46) < 1e-9, 'KO +0,46 -> gleiches Limit erst bei Underlying +0,46');
 });
