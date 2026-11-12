@@ -1,5 +1,9 @@
 # Changelog KO-TP-Rechner
 
+## 1.50
+- „Alle Trades“: Klick auf ein Ziel öffnet „Meine Orders“, gefiltert auf dieses Produkt (Banner mit „Alle zeigen“; Filter endet beim Verlassen der Seite)
+- Rechner: Erlös je Ziel unter dem Gewinn (= „Geschätztes Ordervolumen“ der Maske)
+
 ## 1.49
 - Fix: „Z1 erreicht“ blieb stehen, nachdem Z1 geändert wurde. Die Erinnerung gilt jetzt nur für das Ziel, bei dem sie ausgelöst wurde; geändertes und nicht erreichtes Z1 verwirft sie (Rechner und „Alle Trades“)
 

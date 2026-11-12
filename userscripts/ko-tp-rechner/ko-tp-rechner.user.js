@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.49
+// @version      1.50
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.49</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.50</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -475,7 +475,41 @@
     }
   }
 
+  // Orders-Seite nach einem Instrument filtern (Klick auf ein Ziel in „Alle Trades“). Zeile = höchster Vorfahr mit genau
+  // dieser einen ISIN, dessen Eltern-Element weitere ISINs enthält (die Liste); fremde Zeilen werden ausgeblendet.
+  const ISIN_RX = /\b[A-Z]{2}[A-Z0-9]{9}\d\b/g;
+  function orderFilter() {
+    if (inFrame) return;
+    let of = null; try { of = JSON.parse(GM_getValue('ofilter', 'null')); } catch (e) { /* */ }
+    const restore = () => { for (const e of document.querySelectorAll('[data-kof]')) { e.style.display = ''; e.removeAttribute('data-kof'); } const b = document.getElementById('ko-ofilter'); if (b) b.remove(); };
+    if (!of || !location.pathname.startsWith('/meine-orders')) { if (of && !location.pathname.startsWith('/meine-orders')) GM_setValue('ofilter', 'null'); restore(); return; }
+    const hits = [], rows = new Map();          // ISIN-Textknoten zählen (textContent klebt Zellen ohne Leerzeichen zusammen)
+    const tw = document.createTreeWalker(document.body, 4);
+    for (let n = tw.nextNode(); n; n = tw.nextNode()) { const m = n.nodeValue.match(ISIN_RX); if (m && !ours(n)) hits.push([n, m[0]]); }
+    const cnt = el => hits.reduce((a, [n]) => a + (el.contains(n) ? 1 : 0), 0);
+    for (const [n, id] of hits) {
+      let e = n.parentElement;
+      while (e.parentElement && e.parentElement !== document.body && cnt(e.parentElement) <= 1) e = e.parentElement;
+      if (e.parentElement && e.parentElement !== document.body && cnt(e.parentElement) > 1) rows.set(e, id);
+    }
+    let hit = 0;
+    for (const [e, id] of rows) {
+      if (id === of.id) { hit++; if (e.dataset.kof) { e.style.display = ''; e.removeAttribute('data-kof'); } }
+      else if (!e.dataset.kof) { e.dataset.kof = '1'; e.style.display = 'none'; }
+    }
+    let b = document.getElementById('ko-ofilter');
+    if (!b) {
+      b = document.createElement('div'); b.id = 'ko-ofilter';
+      b.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#1b1f22;color:#e6e6e6;border:1px solid #64b5f6;border-radius:8px;padding:6px 12px;font:13px system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.4)';
+      b.addEventListener('click', ev => { if (ev.target.dataset.act === 'ofoff') { GM_setValue('ofilter', 'null'); restore(); } });
+      document.body.appendChild(b);
+    }
+    const txt = `Gefiltert: <b>${of.name || of.id}</b> · ${of.id}${hit ? '' : ' · <span style="color:#f0c060">keine Orders in diesem Reiter</span>'} <button type="button" data-act="ofoff" style="margin-left:8px;background:#24282c;color:#e6e6e6;border:1px solid #444a50;border-radius:6px;padding:2px 8px;cursor:pointer">Alle zeigen</button>`;
+    if (b.dataset.t !== txt) { b.dataset.t = txt; b.innerHTML = txt; }
+  }
+
   function renderInner() {
+    orderFilter();
     if (onProdOrMask()) {
       forcedIsin = '';
       const tm = location.pathname.match(/^\/instrument\/([A-Z0-9]{12})\/timeline/);
@@ -626,13 +660,13 @@
       const pct = (r.price / base - 1) * 100;
       const dA = T - S, dP = dA / S * 100, sg = dA >= 0 ? '+' : '−';
       rows += `<tr><td class="ko-z">Z${n}</td><td class="${dA >= 0 ? '' : 'ko-neg'}">${sg}${f(Math.abs(dA), 2)} ${cs}<br><span class="ko-s">${sg}${f(Math.abs(dP), 1)} %</span></td><td><b>${f(r.price)} €</b></td><td class="${pct >= 0 ? 'ko-pos' : 'ko-neg'}">${pct >= 0 ? '+' : ''}${f(pct, 0)} %</td>
-        <td class="${crv == null ? '' : crvCls(crv)}">${crv == null ? '–' : f(crv)}</td><td>${pq || '–'}</td><td class="${g == null ? '' : g >= 0 ? 'ko-pos' : 'ko-neg'}">${g == null ? '–' : eur0(g)}</td></tr>`;
+        <td class="${crv == null ? '' : crvCls(crv)}">${crv == null ? '–' : f(crv)}</td><td>${pq || '–'}</td><td class="${g == null ? '' : g >= 0 ? 'ko-pos' : 'ko-neg'}">${g == null ? '–' : eur0(g) + `<br><span class="ko-s" title="Erlös = Stk × Limit (= „Geschätztes Ordervolumen“ der Maske); Gewinn = Erlös − Stk × Einstand">Erlös ${f(pq * pp, 0)} €</span>`}</td></tr>`;
       if (pr && pr.status !== 'ausgeführt') {
         const ld = limDev(d, pr.price, T);
         if (Math.abs(ld.dev) >= LIM_TOL) rows += `<tr><td></td><td colspan="6" class="ko-w" style="text-align:left;border-top:0">Order-Limit ${f(pr.price)} € ≙ ${f(ld.u, nd(ld.u))} ${cs} (${ld.dev > 0 ? '+' : ''}${f(ld.dev, 1)} % ${ld.dev > 0 ? 'über' : 'unter'} Ziel) · Soll ${f(r.price)} €</td></tr>`;
       }
     }
-    if (rows) h += `<table><tr><th></th><th>bis Ziel</th><th>TP</th><th>Gewinn %</th><th>CRV</th><th>Stk</th><th>Gewinn €</th></tr>${rows}</table>`;
+    if (rows) h += `<table><tr><th></th><th>bis Ziel</th><th>TP</th><th>Gewinn %</th><th>CRV</th><th>Stk</th><th>Gewinn / Erlös €</th></tr>${rows}</table>`;
     if (profAny) h += `<div class="ko-sum"><span>Gewinn gesamt</span><b class="${profSum >= 0 ? 'ko-pos' : 'ko-neg'}">≈ ${eur0(profSum)}</b></div>
       <div class="ko-s" style="text-align:right">Basis ${d.ek ? 'Einstand ' + f(d.ek, 3) + ' €' : 'Ask'} · ohne Gebühren/Steuern</div>`;
     const meta = [];
@@ -1094,6 +1128,7 @@
         if (!t) return;
         if (t.dataset.act === 'close') { ov.remove(); if (location.hash === '#ko-dashboard') history.replaceState(null, '', location.pathname + location.search); return; }
         if (t.dataset.act === 'reload') { openDash(); return; }
+        if (t.dataset.act === 'orders') { GM_setValue('ofilter', JSON.stringify({ id: t.dataset.id, name: t.dataset.name || '' })); location.href = 'https://mein.finanzen-zero.net/meine-orders'; return; }
         if (t.dataset.act === 'bgall') { bgLoad([...new Set([...Object.keys(getBases()), ...collectTrades().map(r => r.id)])], true); return; }
         if (t.dataset.act === 'reset') {
           if (!confirm('Gespeicherte Kursdaten (Snapshots) und Positionsbasis löschen?\nZiele, Anteile und Häkchen bleiben erhalten. Danach Übersicht und Produktseiten einmal öffnen.')) return;
@@ -1122,8 +1157,8 @@
       const t = min < 60 ? `vor ${Math.round(min)} min` : min < 1440 ? `vor ${Math.round(min / 60)} h` : `vor ${Math.round(min / 1440)} T`;
       return `<span class="${min < 30 ? '' : min < 1440 ? 'm' : 'n'}">${t}</span>`;
     };
-    const zcell = z => !z ? '<td class="s">–</td>' :
-      `<td><b>${f(z.T, nd(z.T))}</b> <span class="${cls(z.dA)}">${sg(z.dA)}${f(Math.abs(z.dP), 1)} %</span>
+    const zcell = (z, r) => !z ? '<td class="s">–</td>' :
+      `<td class="zc" data-act="orders" data-id="${r.id}" data-name="${(r.name || '').replace(/"/g, '&quot;')}" title="Orders zu diesem Produkt anzeigen"><b>${f(z.T, nd(z.T))}</b> <span class="${cls(z.dA)}">${sg(z.dA)}${f(Math.abs(z.dP), 1)} %</span>
        <div class="s">${sg(z.dA)}${f(Math.abs(z.dA), nd(z.dA))} · TP ${f(z.tp)} € · ${z.q || 0} Stk
        ${z.st === 'ausgeführt' ? '<span class="p">✓✓</span>' : z.st ? '<span class="p">✓</span>' + (z.ld && Math.abs(z.ld.dev) >= LIM_TOL ? ` <span class="m" title="Limit entspricht Underlying ${f(z.ld.u, nd(z.ld.u))}">Limit ${f(z.lim)} (${z.ld.dev > 0 ? '+' : ''}${f(z.ld.dev, 1)} %)</span>` : '') : '<span class="m">keine Order</span>'}</div></td>`;
     const H = (k, t) => `<th data-k="${k}">${t}${dashSort.k === k ? (dashSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
@@ -1137,7 +1172,7 @@
         <td>${r.ek ? f(r.ek, 3) : '–'} → ${f(r.bid, 3)} €<div class="${cls(r.pl)}">${r.pl == null ? '' : eur(r.pl) + ' · ' + sg(r.plP) + f(Math.abs(r.plP), 1) + ' %'}</div></td>
         <td><b>${f(r.S, nd(r.S))} ${r.cs}</b><div class="s">${r.stock ? 'Aktie' : r.src === 'stale' ? '<span class="m">Stand Kennzahlen</span>' : r.src === 'preis' ? 'aus Preis' : 'live'}</div></td>
         <td>${r.koP == null ? '<span class="m">kein Stop</span>' : `<span class="${koCls(r.koP)}">−${f(r.koP, 1)} %</span><div class="s">−${f(r.koA, nd(r.koA))} ${r.cs} · ${r.stock ? 'Stop' : 'KO'} ${f(r.ko, nd(r.ko))}</div>`}</td>
-        ${zcell(r.zs.find(z => z.n === 1))}${zcell(r.zs.find(z => z.n === 2))}${zcell(r.zs.find(z => z.n === 3))}
+        ${[1, 2, 3].map(n => zcell(r.zs.find(z => z.n === n), r)).join('')}
         <td class="${cls(r.gain)}">${r.gain == null ? '–' : eur(r.gain)}</td>
         <td>${r.hold ? `<b style="color:${r.hold.col}">W${r.hold.week}</b> <span class="s" title="${r.hold.approx ? 'erstmals gesehen' : r.hold.dayOnly ? 'Tag aus Timeline (Valuta), ohne Uhrzeit' : ''}">${r.hold.approx ? '≥' : r.hold.dayOnly ? '~' : ''}${r.hold.days} T</span>` : '<span class="s">–</span>'}</td>
         <td>${age(r)}</td></tr>`;
@@ -1147,7 +1182,7 @@
       #ko-dash h2{margin:0;font-size:20px;color:#64b5f6}#ko-dash .bar{display:flex;gap:10px;align-items:center;margin-bottom:14px}
       #ko-dash button{background:#24282c;color:#e6e6e6;border:1px solid #444a50;border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
       #ko-dash table{width:100%;border-collapse:collapse}#ko-dash th{color:#8d98a3;font-weight:500;text-align:left;padding:6px 8px;cursor:pointer;white-space:nowrap;border-bottom:1px solid #333}
-      #ko-dash td{padding:8px;border-bottom:1px solid #262a2e;vertical-align:top;white-space:nowrap}#ko-dash tr:hover td{background:#1b1f22}
+      #ko-dash td{padding:8px;border-bottom:1px solid #262a2e;vertical-align:top;white-space:nowrap}#ko-dash tr:hover td{background:#1b1f22}#ko-dash td.zc{cursor:pointer}#ko-dash tr:hover td.zc:hover{background:#22303c}
       #ko-dash a{color:#e6e6e6;font-weight:600;text-decoration:none}#ko-dash a:hover{color:#64b5f6}
       #ko-dash .s{font-size:11.5px;color:#9aa5b0}#ko-dash .p{color:#4caf50}#ko-dash .n{color:#ff6b6b}#ko-dash .m{color:#f0c060}
       #ko-dash .sum td{font-weight:700;border-top:2px solid #3a3f44;border-bottom:0}
@@ -1182,7 +1217,7 @@
   box.addEventListener('input', render);
   // Ereignisgesteuert statt Dauer-Polling: nur rechnen, wenn sich die Seite ändert (SPA lädt Inhalte nach,
   // Reiterwechsel, "Mehr anzeigen", Live-Kurse). Eigene Änderungen (Rechner, Buttons, Block, Banner) lösen nichts aus.
-  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg')); };
+  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg, #ko-ofilter')); };
   let moTimer = null, lastRun = Date.now();
   const schedule = () => {
     if (moTimer) return;
