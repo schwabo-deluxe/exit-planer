@@ -49,3 +49,17 @@ test('Haltedauer: Kaufdatum aus "Ausgeführt", Löschen bei geschlossener Positi
   page({ url: 'https://mein.finanzen-zero.net/uebersicht', store, text: `Andere\n${ISIN.arm}\n\t\n141\n141\n\t\n3,68 €\n` });
   assert.equal(store['since:' + A], 'null');
 });
+
+test('Zuordnung: vertauschte Z2/Z3 werden korrigiert, höheres Ziel = höheres Limit (auch bei verschobenen TPs)', () => {
+  const B = ISIN.arm;
+  for (const fxo of [1.15, 1.07]) {                 // 1,07: TP von Z2 liegt fast auf dem Z3-Limit
+    const store = { bases: J({ [B]: 141 }), p1: 40, p2: 40, p3: 20, ['t1:' + B]: '409', ['t2:' + B]: '545', ['t3:' + B]: '570',
+      ['snap:' + B]: J({ ko: 146.75, cur: '$', abs: 61.8, und: 208.55, ucur: '$', ask: 5.15, bid: 5.14, bv: 0.1, bvOk: true, fxo, fxoAt: Date.now(), qty: 141 }),
+      ['done:' + B]: J({ 1: { qty: 56, price: 23.15, ts: old, status: 'offen' }, 2: { qty: 29, price: 37.36, ts: old, status: 'offen' }, 3: { qty: 56, price: 35.15, ts: old, status: 'offen' } }) };
+    const r2 = (q, px) => `ARM\n${B}\n${q}\noffen\nLimit\n${px} €\n11.11.26\n30.12.26\nVerkauf\n1,00 €\n`;
+    page({ url: 'https://mein.finanzen-zero.net/uebersicht', text: `ARM\n${B}\n\t\n141\n0\n\t\n3,557 €\n` + HEAD + r2(29, '37,36') + r2(56, '35,15') + r2(56, '23,15'), store });
+    const d = JSON.parse(store['done:' + B]);
+    assert.deepEqual([d[1].price, d[2].price, d[3].price], [23.15, 35.15, 37.36], 'fxo ' + fxo);
+    assert.deepEqual([d[1].qty, d[2].qty, d[3].qty], [56, 56, 29]);
+  }
+});

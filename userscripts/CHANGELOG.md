@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.48
+- Fix: offene Orders konnten Z2/Z3 vertauscht zugeordnet werden, wenn die TPs wanderten. Zuordnung jetzt als beste Gesamtlösung: höheres Ziel = höheres Limit, Stückzahl laut Aufteilung zählt mit; bestehende Vertauschungen korrigieren sich beim nächsten Öffnen von „Offen“
+
 ## 1.47
 - Fix: Kaufdatum wurde auf der Orders-Seite ohne Positionstabelle nicht übernommen
 - Kaufzeit = Beginn der laufenden Position (vom Bestand rückwärts gerechnet, Teilverkäufe/Nachkäufe berücksichtigt); reicht die Liste nicht so weit zurück, gilt der älteste sichtbare Kauf als Untergrenze („≥“)

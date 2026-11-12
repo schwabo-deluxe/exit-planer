@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.47
+// @version      1.48
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.47</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.48</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -271,21 +271,33 @@
     if (changed) setDone(id, dn);
   }
   // Offene Orders den Zielen Z1-Z3 zuordnen: nächstes Limit zum aktuellen Soll-TP (max. 30 % Abstand), engste Paare zuerst
-  function matchTargets(id, list, d) {
+  // Beste Gesamtzuordnung statt "nächstes Paar zuerst": möglichst viele Ziele belegt, dann kleinste Summe aus
+  // Preisabstand zum TP und Stückzahl-Abweichung; höheres Ziel bekommt immer das höhere Limit (keine Vertauschung,
+  // auch wenn die TPs z. B. durch KO-Anpassung oder Wechselkurs etwas wandern). Ausgeführte Ziele bleiben außen vor.
+  function matchTargets(id, list, d, dn = {}, total = 0) {
     const res = {};
     if (!d || !(d.ko || d.stock) || !list.length) return res;
-    const pairs = [];
-    for (const n of [1, 2, 3]) {
-      const T = parseFloat(GM_getValue('t' + n + ':' + id, ''));
-      if (!T) continue;
-      const tp = tpPrice(d, T).price;
-      list.forEach((o, i) => { if (o.side !== 'Kauf' && o.price > 0) pairs.push({ n, i, dist: Math.abs(o.price / tp - 1) }); });
-    }
-    const usedN = new Set(), usedI = new Set();
-    for (const pr of pairs.sort((a, b) => a.dist - b.dist)) {
-      if (pr.dist >= 0.3 || usedN.has(pr.n) || usedI.has(pr.i)) continue;
-      usedN.add(pr.n); usedI.add(pr.i); res[pr.n] = list[pr.i];
-    }
+    const pcs = [1, 2, 3].map(n => parseFloat(GM_getValue('p' + n, n === 3 ? 0 : 50)) || 0);
+    const qs = total ? plan(total, pcs) : [0, 0, 0];
+    const tg = [1, 2, 3].map(n => ({ n, T: parseFloat(GM_getValue('t' + n + ':' + id, '')) }))
+      .filter(z => z.T && !(dn[z.n] && dn[z.n].status === 'ausgeführt'))
+      .map(z => ({ ...z, tp: tpPrice(d, z.T).price, q: qs[z.n - 1] || (dn[z.n] ? dn[z.n].qty : 0) }));
+    const sells = list.map((o, i) => ({ o, i })).filter(x => x.o.side !== 'Kauf' && x.o.price > 0);
+    let best = null;
+    const rec = (k, pick, cnt, cost) => {
+      if (k === tg.length) { if (!best || cnt > best.cnt || (cnt === best.cnt && cost < best.cost - 1e-12)) best = { cnt, cost, pick: pick.slice() }; return; }
+      pick.push(null); rec(k + 1, pick, cnt, cost); pick.pop();
+      for (const x of sells) {
+        if (pick.includes(x.i)) continue;
+        const dist = Math.abs(x.o.price / tg[k].tp - 1);
+        if (dist >= 0.3) continue;
+        const mono = pick.every((pi, j) => pi == null || (tg[j].T < tg[k].T) === (list[pi].price < x.o.price) || tg[j].T === tg[k].T);
+        if (!mono) continue;
+        pick.push(x.i); rec(k + 1, pick, cnt + 1, cost + dist + (tg[k].q && Math.abs(x.o.qty - tg[k].q) > 1e-6 ? 0.1 : 0)); pick.pop();
+      }
+    };
+    rec(0, [], 0, 0);
+    if (best) best.pick.forEach((pi, k) => { if (pi != null) res[tg[k].n] = list[pi]; });
     return res;
   }
   // Aktien-Modus: Zielwährung je Produkt ($ bei US/CA-ISIN vorbelegt) und eigener Stop
@@ -386,7 +398,7 @@
           GM_setValue('oo:' + k, JSON.stringify({ ts: Date.now(), list: by[k] }));
         // Orders ohne Häkchen (vor Version 1.17 gesetzt, geändert, anderswo aufgegeben) den Zielen zuordnen und als Häkchen übernehmen
         let snap = null; try { snap = JSON.parse(GM_getValue('snap:' + k, 'null')); } catch (e) { /* */ }
-        const mt = matchTargets(k, by[k], enrichStock(snap, k)), dn = getDone(k);
+        const dn = getDone(k), mt = matchTargets(k, by[k], enrichStock(snap, k), dn, nu[k] || 0);
         let ch = false;
         for (const n in mt) {
           const o = mt[n], cur = dn[n];
