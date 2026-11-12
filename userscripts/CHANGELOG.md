@@ -1,5 +1,10 @@
 # Changelog KO-TP-Rechner
 
+## 1.45
+- Kaufdatum aus der Timeline des Produkts (`/instrument/<ISIN>/timeline`), in „Alle Trades“ automatisch im Hintergrund abgefragt; liefert nur den Tag (Valuta), Anzeige mit „~“
+- „Ausgeführt“ liefert weiter die genaue Kaufzeit und hat Vorrang vor der Timeline
+- Fix: Käufe im Reiter „Ausgeführt“ wurden nicht erkannt (Icon-Zeichen nach der ISIN, Minuszeichen „−“ im Wert)
+
 ## 1.44
 - Hinweis in „Alle Trades“ und im Rechner, wenn das Kaufdatum unbekannt ist (Reiter „Ausgeführt“ öffnen oder manuell setzen)
 - Auto-Update über GitHub raw (`@updateURL`/`@downloadURL`)

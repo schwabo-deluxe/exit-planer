@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.44
+// @version      1.45
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -154,7 +154,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.44</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.45</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -218,11 +218,13 @@
   // Orders-Liste der Übersicht (Reiter Offen / Ausgeführt / Gestrichen): Zeile = ISIN, Anzahl, Status, Orderart, [Limit/Preis €], Datum [Uhrzeit]
   function parseOrders(t) {
     const out = [];
-    const re = /\b([A-Z]{2}[A-Z0-9]{9}\d)\s+([\d.,]+)\s+(offen|ausgeführt|gestrichen|abgelaufen|abgerechnet|teilausgeführt)\s+([^\n]+?)\s+(?:([\d.,]+)\s*€\s+)?(\d\d)\.(\d\d)\.(\d\d)(?:\s+(\d\d):(\d\d):(\d\d))?(?:\s+(\d\d\.\d\d\.\d\d))?(?:\s+(Kauf|Verkauf)\s+(-?[\d.,]+)\s*€)?/gi;
+    // nach der ISIN können Icons als Zeichen stehen (☆), der Wert kann mit echtem Minus (−) oder ohne Betrag kommen
+    const re = /\b([A-Z]{2}[A-Z0-9]{9}\d)[\s☆★⭐]+([\d.,]+)\s+(offen|ausgeführt|gestrichen|abgelaufen|abgerechnet|teilausgeführt)\s+([^\n]+?)\s+(?:([\d.,]+)\s*€\s+)?(\d\d)\.(\d\d)\.(\d\d)(?:\s+(\d\d):(\d\d):(\d\d))?(?:\s+(\d\d\.\d\d\.\d\d))?(?:\s+(Kauf|Verkauf)\b(?:\s+([+\-−]?)\s*([\d.,]+)\s*€)?)?/gi;
     for (const m of t.matchAll(re)) {
       const hasTime = m[9] !== undefined;
       out.push({ isin: m[1], qty: num(m[2]), status: m[3].toLowerCase(), price: m[5] ? num(m[5]) : null, hasTime,
-        valid: m[12] || null, side: m[13] || null, wert: m[14] ? num(m[14]) : null,
+        valid: m[12] || null, side: m[13] ? m[13][0].toUpperCase() + m[13].slice(1).toLowerCase() : null,
+        wert: m[15] ? (/[-−]/.test(m[14]) ? -1 : 1) * num(m[15]) : null,
         at: new Date(2000 + +m[8], +m[7] - 1, +m[6], hasTime ? +m[9] : 0, hasTime ? +m[10] : 0, hasTime ? +m[11] : 0).getTime() });
     }
     return out;
@@ -287,8 +289,33 @@
     const sv = getSince(id);
     if (!sv || !sv.t) return null;
     const days = Math.max(0, Math.floor((Date.now() - sv.t) / 86400000)), week = Math.floor(days / 7) + 1;
-    return { days, week, col: WEEK_COL[Math.min(week, 8) - 1], approx: sv.src === 'seen', src: sv.src, t: sv.t };
+    return { days, week, col: WEEK_COL[Math.min(week, 8) - 1], approx: sv.src === 'seen', dayOnly: sv.src === 'tl', src: sv.src, t: sv.t };
   };
+  // Timeline je Produkt (/instrument/<ISIN>/timeline): Zeilen "Stück, Datum (Valuta) | —, Kurs €, Kauf|Verkauf: Art, ±Gesamt €, Status".
+  // Liefert den Beginn der aktuellen Haltephase: erster Kauf nach dem letzten Zeitpunkt, an dem der Bestand 0 war.
+  function parseTimeline(t) {
+    const re = /(?:^|\n)[ \t]*(\d[\d.]*)\s+(?:—|-|(\d\d)\.(\d\d)\.(\d\d))\s+[\d.,]+\s*€\s+(Kauf|Verkauf)\b[^\n]*\s+[+\-−]?\s*[\d.,]+\s*€\s+([a-zäöü]+)/gi;
+    const rows = [];
+    for (const m of t.matchAll(re)) {
+      if (!m[2] || /offen|gestrichen|abgelaufen/i.test(m[6])) continue;
+      rows.push({ qty: num(m[1]), buy: /kauf/i.test(m[5]) && !/verkauf/i.test(m[5]), at: new Date(2000 + +m[4], +m[3] - 1, +m[2]).getTime() });
+    }
+    rows.reverse().sort((a, b) => a.at - b.at || (b.buy - a.buy));   // Liste ist neueste zuerst; am selben Tag Käufe vor Verkäufen
+    let q = 0, start = null;
+    for (const r of rows) {
+      if (r.buy) { if (q <= 0) start = r.at; q += r.qty; }
+      else { q -= r.qty; if (q <= 0) { q = 0; start = null; } }
+    }
+    return { rows: rows.length, start: q > 0 ? start : null };
+  }
+  function applyTimeline(id, t) {
+    if (!/\bTimeline\b/.test(t) || !/Summe investiert/.test(t)) return false;
+    const tl = parseTimeline(t), sv = getSince(id);
+    // nur Tag (Valuta) -> eigene Quelle 'tl'; "Ausgeführt" (mit Uhrzeit) und manuell gesetzte Daten haben Vorrang
+    if (tl.start && (!sv || sv.src === 'seen' || sv.src === 'tl')) setSince(id, tl.start, 'tl');
+    GM_setValue('tlAt:' + id, Date.now());
+    return true;
+  }
   function clearTrack(k) { GM_setValue('since:' + k, 'null'); GM_setValue('z1hit:' + k, 0); GM_setValue('slok:' + k, 0); }
   function bumpBase(id, n) {
     if (id && n > 0 && !getSince(id)) setSince(id, Date.now(), 'seen');
@@ -310,7 +337,7 @@
       const buys = orders.filter(o => o.isin === k && o.side === 'Kauf' && /ausgeführt|abgerechnet/.test(o.status));
       if (!buys.length) continue;
       const cand = Math.min(...buys.map(o => o.at)), sv = getSince(k);
-      if (!sv || (sv.src !== 'manual' && (sv.src === 'seen' || cand < sv.t) && cand < (sv.t || Infinity))) setSince(k, cand, 'order');
+      if (!sv || sv.src === 'tl' || (sv.src !== 'manual' && (sv.src === 'seen' || cand < sv.t) && cand < (sv.t || Infinity))) setSince(k, cand, 'order');
     }
     const ctx = {
       orders,
@@ -341,7 +368,7 @@
     for (const m of rows) { const a = num(m[2]), b = num(m[3]); reconcile(m[1], Object.assign({ total: Math.max(a, b) }, ctx)); }
   }
 
-  let lastSync = 0;
+  let lastSync = 0, lastTl = 0;
 
   // Seite bleibt zentriert; nur wenn der Rechner Inhalt verdecken würde, wird so weit nach rechts verschoben wie nötig
   let shiftP = 0, lastShiftAt = 0;
@@ -397,8 +424,11 @@
   }
 
   function renderInner() {
-    if (onProdOrMask()) forcedIsin = '';
-    else {
+    if (onProdOrMask()) {
+      forcedIsin = '';
+      const tm = location.pathname.match(/^\/instrument\/([A-Z0-9]{12})\/timeline/);
+      if (tm && Date.now() - lastTl > 2000 && applyTimeline(tm[1], pageText())) lastTl = Date.now();
+    } else {
       const txt = pageText();
       const portfolioLike = location.pathname.startsWith('/uebersicht') || /Offen[\s\S]{0,60}Ausgeführt[\s\S]{0,60}Gestrichen/.test(txt);
       if (location.pathname.startsWith('/uebersicht')) { const c = parseCap(txt); if (c) gset('capAuto', c); }
@@ -505,7 +535,7 @@
     if (hi) {
       const segs = WEEK_COL.map((c, i) => `<i style="${i < hi.week ? 'background:' + c : ''}"></i>`).join('');
       $('hold').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px"><span>Haltedauer <b style="color:${hi.col}">${hi.approx ? '≥ ' : ''}${hi.days} T · Woche ${hi.week}${hi.week > 8 ? ' ⚠' : ''}</b></span>
-        <span class="ko-s">seit ${new Date(hi.t).toLocaleDateString('de-DE')}${hi.approx ? ' (erstmals gesehen)' : hi.src === 'manual' ? ' (manuell)' : ''}</span></div><div class="ko-hb">${segs}</div>${hi.approx ? '<div class="ko-s" style="color:#f0c060">⚠ Kaufdatum unbekannt: Übersicht → Orders → Reiter „Ausgeführt“ öffnen oder hier klicken</div>' : ''}`;
+        <span class="ko-s">seit ${new Date(hi.t).toLocaleDateString('de-DE')}${hi.approx ? ' (erstmals gesehen)' : hi.dayOnly ? ' (Timeline, Valuta)' : hi.src === 'manual' ? ' (manuell)' : ''}</span></div><div class="ko-hb">${segs}</div>${hi.approx ? '<div class="ko-s" style="color:#f0c060">⚠ Kaufdatum unbekannt: Timeline des Produkts oder Übersicht → Orders → „Ausgeführt“ öffnen, oder hier klicken</div>' : hi.dayOnly ? '<div class="ko-s">Genaue Kaufzeit: Übersicht → Orders → „Ausgeführt“ öffnen</div>' : ''}`;
     } else $('hold').innerHTML = '<span class="ko-s">Haltedauer unbekannt · Klick: Kaufdatum setzen</span>';
     // Reminder: Z1 erreicht -> Stop-Loss nachziehen
     const dn1 = getDone(isin)[1];
@@ -944,22 +974,24 @@
     if (added && !bgBusy) bgNext();
   }
   function bgNext() {
-    const id = bgQueue.shift();
-    if (!id) { const was = bgBusy; bgBusy = false; bgStatus = ''; schedule(); if (was && document.getElementById('ko-dash')) openDash(); return; }
+    const item = bgQueue.shift();                   // "<ISIN>" = Produktseite, "<ISIN>/timeline" = Timeline (Kaufdatum)
+    if (!item) { const was = bgBusy; bgBusy = false; bgStatus = ''; schedule(); if (was && document.getElementById('ko-dash')) openDash(); return; }
     bgBusy = true;
-    const t0 = Date.now();
+    const t0 = Date.now(), id = item.split('/')[0], isTl = item !== id;
     const fr = document.createElement('iframe');
-    fr.id = 'ko-bg'; fr.src = '/instrument/' + id; fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1;
+    fr.id = 'ko-bg'; fr.src = '/instrument/' + item; fr.setAttribute('aria-hidden', 'true'); fr.tabIndex = -1;
     fr.style.cssText = 'position:fixed;left:-20000px;top:0;width:1280px;height:1000px;opacity:0;pointer-events:none;border:0';
     document.body.appendChild(fr);
-    bgStatus = `Lade im Hintergrund: ${id}${bgQueue.length ? ' (+' + bgQueue.length + ')' : ''}`;
+    bgStatus = `Lade im Hintergrund: ${item}${bgQueue.length ? ' (+' + bgQueue.length + ')' : ''}`;
     if (document.getElementById('ko-dash')) openDash();
     const iv = setInterval(() => {
-      let sn = null; try { sn = JSON.parse(GM_getValue('snap:' + id, 'null')); } catch (e) { /* */ }
-      const ok = !!(sn && sn.tsAt >= t0), late = Date.now() - t0 > 30000;
+      let ok;
+      if (isTl) ok = (+GM_getValue('tlAt:' + id, 0) || 0) >= t0;
+      else { let sn = null; try { sn = JSON.parse(GM_getValue('snap:' + id, 'null')); } catch (e) { /* */ } ok = !!(sn && sn.tsAt >= t0); }
+      const late = Date.now() - t0 > 30000;
       if (!ok && !late) return;
       clearInterval(iv); fr.remove();
-      if (ok) bgFail.delete(id); else bgFail.add(id);
+      if (ok) bgFail.delete(item); else bgFail.add(item);
       schedule();
       if (document.getElementById('ko-dash')) openDash();
       setTimeout(bgNext, 300);
@@ -1024,6 +1056,8 @@
     const known = new Set(rows.map(r => r.id));
     const missing = Object.keys(getBases()).filter(id => !known.has(id));
     if (missing.length) bgLoad(missing);                // Positionen ohne gespeicherte Daten automatisch nachladen
+    const noTl = rows.filter(r => (!r.hold || r.hold.approx) && !(+GM_getValue('tlAt:' + r.id, 0) > Date.now() - 6 * 3600000));
+    if (noTl.length) bgLoad(noTl.map(r => r.id + '/timeline'));   // Kaufdatum unbekannt: Timeline des Produkts abfragen
     const val = (r, k) => k === 'name' ? (r.name || r.id) : k === 'z1' ? (r.zs[0] ? r.zs[0].dP : 1e9) : k === 'age' ? -(r.tsAt || 0) : k === 'hold' ? (r.hold ? r.hold.days : -1) : (r[k] == null ? -1e12 : r[k]);
     rows.sort((a, b) => { const x = val(a, dashSort.k), y = val(b, dashSort.k); return (x > y ? 1 : x < y ? -1 : 0) * dashSort.dir; });
     const sg = v => v >= 0 ? '+' : '−', eur = v => sg(v) + f(Math.abs(v), 0) + ' €';
@@ -1041,7 +1075,7 @@
        <div class="s">${sg(z.dA)}${f(Math.abs(z.dA), nd(z.dA))} · TP ${f(z.tp)} € · ${z.q || 0} Stk
        ${z.st === 'ausgeführt' ? '<span class="p">✓✓</span>' : z.st ? '<span class="p">✓</span>' + (Math.abs(z.lim / z.tp - 1) >= 0.02 ? ` <span class="m">Limit ${f(z.lim)}</span>` : '') : '<span class="m">keine Order</span>'}</div></td>`;
     const H = (k, t) => `<th data-k="${k}">${t}${dashSort.k === k ? (dashSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
-    const noBuy = rows.filter(r => !r.hold || r.hold.approx);
+    const noBuy = rows.filter(r => !r.hold || r.hold.approx), dayOnly = rows.filter(r => r.hold && r.hold.dayOnly);
     let body = '', sv = 0, spl = 0, sg2 = 0, ek0 = 0;
     for (const r of rows) {
       sv += r.value; if (r.pl != null) spl += r.pl; if (r.gain != null) sg2 += r.gain; ek0 += r.risk || 0;
@@ -1053,7 +1087,7 @@
         <td>${r.koP == null ? '<span class="m">kein Stop</span>' : `<span class="${koCls(r.koP)}">−${f(r.koP, 1)} %</span><div class="s">−${f(r.koA, nd(r.koA))} ${r.cs} · ${r.stock ? 'Stop' : 'KO'} ${f(r.ko, nd(r.ko))}</div>`}</td>
         ${zcell(r.zs.find(z => z.n === 1))}${zcell(r.zs.find(z => z.n === 2))}${zcell(r.zs.find(z => z.n === 3))}
         <td class="${cls(r.gain)}">${r.gain == null ? '–' : eur(r.gain)}</td>
-        <td>${r.hold ? `<b style="color:${r.hold.col}">W${r.hold.week}</b> <span class="s">${r.hold.approx ? '≥' : ''}${r.hold.days} T</span>` : '<span class="s">–</span>'}</td>
+        <td>${r.hold ? `<b style="color:${r.hold.col}">W${r.hold.week}</b> <span class="s" title="${r.hold.approx ? 'erstmals gesehen' : r.hold.dayOnly ? 'Tag aus Timeline (Valuta), ohne Uhrzeit' : ''}">${r.hold.approx ? '≥' : r.hold.dayOnly ? '~' : ''}${r.hold.days} T</span>` : '<span class="s">–</span>'}</td>
         <td>${age(r)}</td></tr>`;
     }
     ov.innerHTML = `<style>
@@ -1077,8 +1111,8 @@
         <div class="card"><span class="s">G/V offen</span><b class="${cls(spl)}">${eur(spl)}</b></div>
         <div class="card"><span class="s">Erwarteter Gewinn alle Ziele</span><b class="${cls(sg2)}">${eur(sg2)}</b></div>
         <div class="card"><span class="s">Risiko bei KO/Stop (vom Einstand)</span><b class="n">−${f(ek0, 0)} €</b></div></div>
-      ${noBuy.length ? `<div class="hint" style="background:#3a3010;border:1px solid #f0c060;color:#f0c060;border-radius:8px;padding:8px 12px;margin-bottom:14px">⚠ Kaufdatum für ${noBuy.length} von ${rows.length} Positionen unbekannt (Haltedauer mit „≥“ zählt erst ab erstmals gesehen).
-        Auf der <b>Übersicht</b> in der Orders-Liste den Reiter <b>„Ausgeführt“</b> öffnen, bei älteren Käufen „Mehr anzeigen“ – oder auf der Produktseite auf „Haltedauer“ klicken und das Datum setzen.</div>` : ''}
+      ${noBuy.length || dayOnly.length ? `<div class="hint" style="background:#3a3010;border:1px solid #f0c060;color:#f0c060;border-radius:8px;padding:8px 12px;margin-bottom:14px">${noBuy.length ? `⚠ Kaufdatum für ${noBuy.length} von ${rows.length} Positionen unbekannt (Haltedauer mit „≥“ zählt erst ab erstmals gesehen).
+        Die Timeline der Produkte wird im Hintergrund abgefragt. Bleibt es unbekannt: auf der <b>Übersicht</b> in der Orders-Liste den Reiter <b>„Ausgeführt“</b> öffnen (ältere Käufe: „Mehr anzeigen“) oder auf der Produktseite auf „Haltedauer“ klicken.<br>` : ''}${dayOnly.length ? `Für ${dayOnly.length} Positionen ist nur der Tag aus der Timeline (Valuta) bekannt. Genaue Kaufzeit: <b>Übersicht → Orders → Reiter „Ausgeführt“</b> öffnen.` : ''}</div>` : ''}
       <table><tr>${H('name', 'Produkt')}${H('value', 'Stk / Wert')}${H('plP', 'Einstand → Bid')}<th>Underlying</th>${H('koP', 'bis KO (Stop)')}${H('z1', 'Z1')}<th>Z2</th><th>Z3</th>${H('gain', 'erw. Gewinn')}${H('hold', 'Haltedauer')}${H('age', 'Stand')}</tr>
         ${body || '<tr><td colspan="11" class="s">Noch keine Daten. Produktseiten einmal öffnen.</td></tr>'}
         ${rows.length ? `<tr class="sum"><td>Summe</td><td>${f(sv, 0)} €</td><td class="${cls(spl)}">${eur(spl)}</td><td></td><td></td><td></td><td></td><td></td><td class="${cls(sg2)}">${eur(sg2)}</td><td></td><td></td></tr>` : ''}
