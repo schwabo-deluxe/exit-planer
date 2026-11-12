@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.43
+// @version      1.44
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -154,7 +154,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.43</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.44</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -505,7 +505,7 @@
     if (hi) {
       const segs = WEEK_COL.map((c, i) => `<i style="${i < hi.week ? 'background:' + c : ''}"></i>`).join('');
       $('hold').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px"><span>Haltedauer <b style="color:${hi.col}">${hi.approx ? '≥ ' : ''}${hi.days} T · Woche ${hi.week}${hi.week > 8 ? ' ⚠' : ''}</b></span>
-        <span class="ko-s">seit ${new Date(hi.t).toLocaleDateString('de-DE')}${hi.approx ? ' (erstmals gesehen)' : hi.src === 'manual' ? ' (manuell)' : ''}</span></div><div class="ko-hb">${segs}</div>`;
+        <span class="ko-s">seit ${new Date(hi.t).toLocaleDateString('de-DE')}${hi.approx ? ' (erstmals gesehen)' : hi.src === 'manual' ? ' (manuell)' : ''}</span></div><div class="ko-hb">${segs}</div>${hi.approx ? '<div class="ko-s" style="color:#f0c060">⚠ Kaufdatum unbekannt: Übersicht → Orders → Reiter „Ausgeführt“ öffnen oder hier klicken</div>' : ''}`;
     } else $('hold').innerHTML = '<span class="ko-s">Haltedauer unbekannt · Klick: Kaufdatum setzen</span>';
     // Reminder: Z1 erreicht -> Stop-Loss nachziehen
     const dn1 = getDone(isin)[1];
@@ -1041,6 +1041,7 @@
        <div class="s">${sg(z.dA)}${f(Math.abs(z.dA), nd(z.dA))} · TP ${f(z.tp)} € · ${z.q || 0} Stk
        ${z.st === 'ausgeführt' ? '<span class="p">✓✓</span>' : z.st ? '<span class="p">✓</span>' + (Math.abs(z.lim / z.tp - 1) >= 0.02 ? ` <span class="m">Limit ${f(z.lim)}</span>` : '') : '<span class="m">keine Order</span>'}</div></td>`;
     const H = (k, t) => `<th data-k="${k}">${t}${dashSort.k === k ? (dashSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+    const noBuy = rows.filter(r => !r.hold || r.hold.approx);
     let body = '', sv = 0, spl = 0, sg2 = 0, ek0 = 0;
     for (const r of rows) {
       sv += r.value; if (r.pl != null) spl += r.pl; if (r.gain != null) sg2 += r.gain; ek0 += r.risk || 0;
@@ -1076,6 +1077,8 @@
         <div class="card"><span class="s">G/V offen</span><b class="${cls(spl)}">${eur(spl)}</b></div>
         <div class="card"><span class="s">Erwarteter Gewinn alle Ziele</span><b class="${cls(sg2)}">${eur(sg2)}</b></div>
         <div class="card"><span class="s">Risiko bei KO/Stop (vom Einstand)</span><b class="n">−${f(ek0, 0)} €</b></div></div>
+      ${noBuy.length ? `<div class="hint" style="background:#3a3010;border:1px solid #f0c060;color:#f0c060;border-radius:8px;padding:8px 12px;margin-bottom:14px">⚠ Kaufdatum für ${noBuy.length} von ${rows.length} Positionen unbekannt (Haltedauer mit „≥“ zählt erst ab erstmals gesehen).
+        Auf der <b>Übersicht</b> in der Orders-Liste den Reiter <b>„Ausgeführt“</b> öffnen, bei älteren Käufen „Mehr anzeigen“ – oder auf der Produktseite auf „Haltedauer“ klicken und das Datum setzen.</div>` : ''}
       <table><tr>${H('name', 'Produkt')}${H('value', 'Stk / Wert')}${H('plP', 'Einstand → Bid')}<th>Underlying</th>${H('koP', 'bis KO (Stop)')}${H('z1', 'Z1')}<th>Z2</th><th>Z3</th>${H('gain', 'erw. Gewinn')}${H('hold', 'Haltedauer')}${H('age', 'Stand')}</tr>
         ${body || '<tr><td colspan="11" class="s">Noch keine Daten. Produktseiten einmal öffnen.</td></tr>'}
         ${rows.length ? `<tr class="sum"><td>Summe</td><td>${f(sv, 0)} €</td><td class="${cls(spl)}">${eur(spl)}</td><td></td><td></td><td></td><td></td><td></td><td class="${cls(sg2)}">${eur(sg2)}</td><td></td><td></td></tr>` : ''}

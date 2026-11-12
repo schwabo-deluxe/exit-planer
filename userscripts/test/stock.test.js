@@ -57,3 +57,12 @@ test('Alle Trades: Aktie mit Stop-Abstand und Risiko bis Stop', () => {
   const risk = 10 * (140 - 155 / 1.1148);
   assert.match(p.$('#ko-dash .cards').textContent, new RegExp('−' + Math.round(risk) + ' €'));
 });
+
+test('Alle Trades: Hinweis bei unbekanntem Kaufdatum, weg sobald Kaufdatum aus Orders bekannt', () => {
+  const snap = J({ stock: true, uname: 'NVIDIA Corp.', cur: '€', bid: 152.32, ask: 152.6, ek: 140, qty: 10, tsAt: Date.now() });
+  const base = { eurusd: J({ v: 1.1148, ts: Date.now() }), bases: J({ [NV]: 10 }), ['snap:' + NV]: snap };
+  const p1 = page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store: { ...base, ['since:' + NV]: J({ t: Date.now(), src: 'seen' }) } });
+  assert.match(p1.$('#ko-dash .hint').textContent, /Kaufdatum für 1 von 1 Positionen unbekannt.*Ausgeführt/s);
+  const p2 = page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store: { ...base, ['since:' + NV]: J({ t: Date.now() - 20 * 86400000, src: 'order' }) } });
+  assert.equal(p2.$('#ko-dash .hint'), null);
+});

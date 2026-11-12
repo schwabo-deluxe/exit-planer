@@ -1,5 +1,9 @@
 # Changelog KO-TP-Rechner
 
+## 1.44
+- Hinweis in „Alle Trades“ und im Rechner, wenn das Kaufdatum unbekannt ist (Reiter „Ausgeführt“ öffnen oder manuell setzen)
+- Auto-Update über GitHub raw (`@updateURL`/`@downloadURL`)
+
 ## 1.43
 - Aktien-Modus: Aktienseiten werden erkannt (Name, Bid/Ask), Ziele/Stop in $ (über EUR/USD) oder €
 - Eigenes Stop-Feld: CRV, Abstand zum Stop und Positionsgröße nach Risiko bis Stop
