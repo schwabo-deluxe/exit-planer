@@ -3,6 +3,8 @@
 // @namespace    max.tools
 // @version      1.43
 // @match        https://mein.finanzen-zero.net/*
+// @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
+// @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_listValues
