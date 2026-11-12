@@ -1,0 +1,12 @@
+{
+  "name": "userscripts",
+  "private": true,
+  "description": "Tampermonkey-Userscripts (KO-TP-Rechner für Finanzen Invest, viGuard)",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "check": "node --check ko-tp-rechner/ko-tp-rechner.user.js"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0"
+  }
+}

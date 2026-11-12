@@ -1,0 +1,6 @@
+node_modules/
+# Export-Strings und Broker-Exporte enthalten persönliche Positionsdaten -> nie einchecken
+*.export.txt
+exports/
+*.csv
+.env
