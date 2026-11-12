@@ -37,3 +37,14 @@ test('Alter Snapshot (ohne Produktseite) belebt verkaufte Position nicht wieder'
   page({ url: `https://mein.finanzen-zero.net/meindepot/kaufenverkaufen?isin=${A}&direction=sell&quantity=10`, store });
   assert.deepEqual(Object.keys(JSON.parse(store.bases)), [B]);
 });
+
+test('Meine Orders (ohne Positionstabelle): offene Orders werden den Zielen zugeordnet', () => {
+  const store = { bases: J({ [A]: 95 }), p1: 40, p2: 40, p3: 20, ['t1:' + A]: '6.9', ['t2:' + A]: '7.6', ['t3:' + A]: '7.96', ['snap:' + A]: snapNow(SNAP.cu) };
+  const r = (q, lim, w) => `HSBC OE-Turbo Test Call\n5.69\n${A} ☆\n${q}\noffen\nLimit\n${lim} €\n11.11.26\n30.12.26\nVerkauf\n${w} €\n09:49:39\n8,190 €\n`;
+  const text = 'Orders\nOffen\nAusgeführt\nGestrichen\nName↓\nISIN↓\nAnzahl\nStatus\nOrderart\nStop / Limit\nErstelldatum\nGültigkeit\nRichtung\nWert\nKurszeit\nKurs\n' +
+    r(19, '20,30', '385,70') + r(38, '17,10', '649,80') + r(38, '10,80', '410,40');
+  page({ url: 'https://mein.finanzen-zero.net/meine-orders', store, text });
+  const dn = JSON.parse(store['done:' + A]);
+  assert.deepEqual([1, 2, 3].map(n => dn[n] && dn[n].price), [10.8, 17.1, 20.3]);
+  assert.equal(JSON.parse(store['oo:' + A]).list.length, 3);
+});

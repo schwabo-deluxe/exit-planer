@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.51
+// @version      1.52
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.51</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.52</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -381,10 +381,38 @@
       else if (!sv || ((sv.src === 'seen' || sv.src === 'tl') && b.t < sv.t)) setSince(k, b.t, 'seen');
     }
   }
+  // offene Orders je ISIN merken (für den Block unter "Meine Position") und Zielen zuordnen; ids = Positionen ohne Orders leeren
+  function storeOpen(ids, orders, nu) {
+    const by = {};
+    for (const id of ids) by[id] = [];
+    for (const o of orders) if (o.status === 'offen') (by[o.isin] = by[o.isin] || []).push({ qty: o.qty, price: o.price, valid: o.valid, side: o.side, wert: o.wert });
+    for (const k in by) {
+      let prev = null; try { prev = JSON.parse(GM_getValue('oo:' + k, 'null')); } catch (e) { /* */ }
+      if (!prev || JSON.stringify(prev.list) !== JSON.stringify(by[k]) || Date.now() - prev.ts > 60000)
+        GM_setValue('oo:' + k, JSON.stringify({ ts: Date.now(), list: by[k] }));
+      // Orders ohne Häkchen (vor Version 1.17 gesetzt, geändert, anderswo aufgegeben) den Zielen zuordnen und als Häkchen übernehmen
+      let snap = null; try { snap = JSON.parse(GM_getValue('snap:' + k, 'null')); } catch (e) { /* */ }
+      const dn = getDone(k), mt = matchTargets(k, by[k], enrichStock(snap, k), dn, nu[k] || 0);
+      let ch = false;
+      for (const n in mt) {
+        const o = mt[n], cur = dn[n];
+        const same = cur && Math.abs(cur.qty - o.qty) < 1e-6 && Math.abs(cur.price - o.price) < 0.006;
+        if (!cur || (cur.status !== 'ausgeführt' && !same)) { dn[n] = { qty: o.qty, price: o.price, ts: Date.now(), status: 'offen', auto: true }; ch = true; }
+      }
+      if (ch) setDone(k, dn);
+    }
+  }
+
   function syncPositions(t) {
     const rows = [...t.matchAll(/\b([A-Z]{2}[A-Z0-9]{9}\d)\s+(\d[\d.]*)\s+(\d[\d.]*)\s/g)];
     const orders = parseOrders(t);
-    if (!rows.length) { applyBuyDates(orders, getBases()); return; }   // Positionstabelle fehlt (z. B. eigene Orders-Seite): nur Kaufdaten, nichts löschen
+    const noOpen = /aktuell keine offenen Orders/i.test(t), openTab = noOpen || orders.some(o => o.status === 'offen');
+    if (!rows.length) {             // Positionstabelle fehlt (z. B. „Meine Orders“): Kaufdaten und offene Orders, nichts löschen
+      const b = getBases();
+      applyBuyDates(orders, b);
+      if (openTab) storeOpen(noOpen ? Object.keys(b) : [], orders, b);   // Liste kann gekürzt sein: nur ISINs mit sichtbaren Orders aktualisieren
+      return;
+    }
     const old = getBases(), nu = {};
     for (const m of rows) nu[m[1]] = Math.max(old[m[1]] || 0, num(m[2]), num(m[3]));
     for (const k in old) if (!(k in nu)) { setDone(k, {}); clearTrack(k); }   // Position weg: Häkchen, Haltedauer, Reminder zurücksetzen
@@ -393,30 +421,11 @@
     applyBuyDates(orders, nu);
     const ctx = {
       orders,
-      openTab: /aktuell keine offenen Orders/i.test(t) || orders.some(o => o.status === 'offen'),
+      openTab,
       execTab: orders.some(o => /ausgeführt|abgerechnet/.test(o.status)),
       cancTab: orders.some(o => /gestrichen|abgelaufen/.test(o.status)),
     };
-    if (ctx.openTab) {                              // offene Orders je ISIN merken (für den Block unter "Meine Position")
-      const by = {};
-      for (const m of rows) by[m[1]] = [];
-      for (const o of orders) if (o.status === 'offen') (by[o.isin] = by[o.isin] || []).push({ qty: o.qty, price: o.price, valid: o.valid, side: o.side, wert: o.wert });
-      for (const k in by) {
-        let prev = null; try { prev = JSON.parse(GM_getValue('oo:' + k, 'null')); } catch (e) { /* */ }
-        if (!prev || JSON.stringify(prev.list) !== JSON.stringify(by[k]) || Date.now() - prev.ts > 60000)
-          GM_setValue('oo:' + k, JSON.stringify({ ts: Date.now(), list: by[k] }));
-        // Orders ohne Häkchen (vor Version 1.17 gesetzt, geändert, anderswo aufgegeben) den Zielen zuordnen und als Häkchen übernehmen
-        let snap = null; try { snap = JSON.parse(GM_getValue('snap:' + k, 'null')); } catch (e) { /* */ }
-        const dn = getDone(k), mt = matchTargets(k, by[k], enrichStock(snap, k), dn, nu[k] || 0);
-        let ch = false;
-        for (const n in mt) {
-          const o = mt[n], cur = dn[n];
-          const same = cur && Math.abs(cur.qty - o.qty) < 1e-6 && Math.abs(cur.price - o.price) < 0.006;
-          if (!cur || (cur.status !== 'ausgeführt' && !same)) { dn[n] = { qty: o.qty, price: o.price, ts: Date.now(), status: 'offen', auto: true }; ch = true; }
-        }
-        if (ch) setDone(k, dn);
-      }
-    }
+    if (ctx.openTab) storeOpen(rows.map(m => m[1]), orders, nu);
     for (const m of rows) { const a = num(m[2]), b = num(m[3]); reconcile(m[1], Object.assign({ total: Math.max(a, b) }, ctx)); }
   }
 

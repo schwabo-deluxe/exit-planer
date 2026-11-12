@@ -1,5 +1,8 @@
 # Changelog KO-TP-Rechner
 
+## 1.52
+- Fix: offene Orders wurden nur auf der Übersicht erkannt, nicht auf „Meine Orders“ (keine Positionstabelle) – Ziele zeigten „keine Order“. Jetzt werden sie auch dort zugeordnet
+
 ## 1.51
 - Fix: verkaufte Positionen tauchten wieder in der Positionsbasis auf (alter Snapshot aus Verkaufsmaske/Orders-Liste) und wurden in „Alle Trades“ ständig im Hintergrund nachgeladen. Bestand wird nur noch von der Produktseite bzw. Übersicht übernommen
 
