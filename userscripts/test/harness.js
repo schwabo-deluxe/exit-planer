@@ -9,7 +9,7 @@ const SRC = fs.readFileSync(FILE, 'utf8');
 // Reine Rechenfunktionen (Block zwischen //<core und //</core)
 function core() {
   const a = SRC.indexOf('//<core'), b = SRC.indexOf('//</core');
-  return new Function(SRC.slice(a, b) + '\nreturn { num, pick, parse, plan, tpPrice, limitU, underlying, underlyingInfo };')();
+  return new Function(SRC.slice(a, b) + '\nreturn { num, pick, parse, plan, tpPrice, limitU, underlying, underlyingInfo, parseDepot, tradeStats };')();
 }
 
 // innerText-Nachbildung: sichtbarer Text, display:none wird ausgelassen (wie im Browser)

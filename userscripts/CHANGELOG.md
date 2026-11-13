@@ -1,5 +1,11 @@
 # Changelog KO-TP-Rechner
 
+## 1.55
+- Erweiterte Statistik auf `/statistik`: Gewinn gesamt (Depot + Cash + Auszahlungen − Einzahlungen), Rendite auf Netto-Einlage, offen/realisiert
+- Abgeschlossene Trades (FIFO aus gespeicherten Ausführungen): Winrate, Ø Gewinn/Verlust, realisiertes CRV, Profit-Faktor, Erwartung, Ø Rendite, Ø Haltedauer, bester/schlechtester Trade
+- Offene Positionen: Ø geplantes CRV bis Z1 und aller offenen Ziele, Risiko bei KO/Stop
+- Ausführungen aus „Ausgeführt“ werden dauerhaft gespeichert (auch im Export)
+
 ## 1.54
 - „nächstes Ziel“ farbig nach Abstand: grün < 10 %, gelb 10–50 %, rot ab 50 %, blau = erreicht
 

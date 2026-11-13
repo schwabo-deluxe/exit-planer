@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.54
+// @version      1.55
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -106,6 +106,54 @@
       return q;
     });
   };
+  // Statistik-Seite: Gesamtentwicklung; Gewinn = Depot + Cash + Auszahlungen − Einzahlungen
+  function parseDepot(t) {
+    const g = re => { const m = t.match(re); return m ? num(m[1]) : null; };
+    const d = { depot: g(/Depotwert\s+([\d.,]+)\s*€/), cash: g(/Cash-Bestand\s+(-?[\d.,]+)\s*€/), total: g(/Gesamt \(Depot \+ Cash\)\s+([\d.,]+)\s*€/),
+      ein: g(/Einzahlungen\s+([\d.,]+)\s*€/), aus: g(/Auszahlungen\s+([\d.,]+)\s*€/) };
+    if (d.total == null && d.depot != null) d.total = d.depot + (d.cash || 0);
+    if (d.total == null || d.ein == null) return null;
+    d.net = d.ein - (d.aus || 0);
+    d.profit = d.total - d.net;
+    d.perf = d.net > 0 ? d.profit / d.net * 100 : null;
+    return d;
+  }
+  // Ausführungen (Kauf/Verkauf) je ISIN nach FIFO zu Trades zusammensetzen. Ein Trade beginnt mit dem ersten Kauf ab Bestand 0
+  // und endet, wenn der Bestand wieder 0 ist. Verkäufe ohne bekannten Kauf (vor Beginn der Aufzeichnung) zählen nicht.
+  function tradeStats(ex) {
+    const by = {};
+    for (const e of [...ex].sort((a, b) => a.at - b.at)) (by[e.isin] = by[e.isin] || []).push(e);
+    const closed = [], open = [];
+    let orphan = 0;
+    for (const id in by) {
+      let lots = [], tr = null;
+      for (const e of by[id]) {
+        const val = Math.abs(e.wert != null ? e.wert : e.qty * e.price);
+        if (e.side === 'Kauf') {
+          if (!tr) tr = { isin: id, start: e.at, cost: 0, proceeds: 0, pnl: 0, qty: 0 };
+          lots.push({ q: e.qty, u: val / e.qty }); tr.cost += val; tr.qty += e.qty;
+        } else {
+          if (!tr) { orphan++; continue; }
+          let q = e.qty, basis = 0;
+          while (q > 1e-9 && lots.length) { const l = lots[0], k = Math.min(q, l.q); basis += k * l.u; l.q -= k; q -= k; if (l.q <= 1e-9) lots.shift(); }
+          if (q > 1e-9) { orphan++; lots = []; tr = null; continue; }   // mehr verkauft als bekannt gekauft: Trade unvollständig
+          tr.proceeds += val; tr.pnl += val - basis;
+          if (!lots.length) { tr.end = e.at; closed.push(tr); tr = null; }
+        }
+      }
+      if (tr) open.push(tr);
+    }
+    const win = closed.filter(t => t.pnl > 0), loss = closed.filter(t => t.pnl <= 0);
+    const sum = a => a.reduce((s, t) => s + t.pnl, 0), avg = a => a.length ? sum(a) / a.length : null;
+    const aw = avg(win), al = loss.length ? -avg(loss) : null;
+    return { closed, open, orphan, n: closed.length, wins: win.length, losses: loss.length,
+      winrate: closed.length ? win.length / closed.length * 100 : null, pnl: sum(closed),
+      avgWin: aw, avgLoss: al, payoff: aw != null && al ? aw / al : null,
+      pf: loss.length && sum(loss) < 0 ? sum(win) / -sum(loss) : null, exp: avg(closed),
+      avgRet: closed.length ? closed.reduce((s, t) => s + t.pnl / t.cost * 100, 0) / closed.length : null,
+      avgHold: closed.length ? closed.reduce((s, t) => s + (t.end - t.start), 0) / closed.length / 86400000 : null,
+      best: closed.reduce((b, t) => (!b || t.pnl > b.pnl ? t : b), null), worst: closed.reduce((b, t) => (!b || t.pnl < b.pnl ? t : b), null) };
+  }
   //</core
 
   if (typeof document === 'undefined') return;
@@ -122,7 +170,7 @@
   let txtCache = '', txtAt = 0;
   // Eigene Elemente (Rechner, "Alle Trades", Orders-Block, Banner) werden beim Lesen kurz ausgeblendet, damit das Skript
   // nie seine eigenen Zahlen als Seiteninhalt liest (sonst schaukeln sich z. B. Stückzahlen über "Alle Trades" auf).
-  const OURS_SEL = '#ko-box, #ko-dash, #ko-orders-block, #ko-limit-banner';
+  const OURS_SEL = '#ko-box, #ko-dash, #ko-orders-block, #ko-limit-banner, #ko-ofilter, #ko-stats';
   const pageText = () => {
     const n = Date.now();
     if (n - txtAt > 300) {
@@ -170,7 +218,7 @@
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.54</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.55</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -403,9 +451,23 @@
     }
   }
 
+  // Ausführungen dauerhaft mitschreiben (Statistik): nur mit Uhrzeit, Richtung und Ausführungskurs
+  function getExec() { try { return JSON.parse(GM_getValue('ex', '[]')) || []; } catch (e) { return []; } }
+  function logExec(orders) {
+    const ex = getExec(), seen = new Set(ex.map(e => e.isin + e.at + e.side + e.qty));
+    let add = 0;
+    for (const o of orders) {
+      if (!/ausgeführt|abgerechnet/.test(o.status) || !o.hasTime || !o.side || !(o.qty > 0) || !(o.price > 0 || o.wert)) continue;
+      const k = o.isin + o.at + o.side + o.qty;
+      if (seen.has(k)) continue;
+      seen.add(k); ex.push({ isin: o.isin, at: o.at, side: o.side, qty: o.qty, price: o.price, wert: o.wert }); add++;
+    }
+    if (add) GM_setValue('ex', JSON.stringify(ex));
+  }
   function syncPositions(t) {
     const rows = [...t.matchAll(/\b([A-Z]{2}[A-Z0-9]{9}\d)\s+(\d[\d.]*)\s+(\d[\d.]*)\s/g)];
     const orders = parseOrders(t);
+    logExec(orders);
     const noOpen = /aktuell keine offenen Orders/i.test(t), openTab = noOpen || orders.some(o => o.status === 'offen');
     if (!rows.length) {             // Positionstabelle fehlt (z. B. „Meine Orders“): Kaufdaten und offene Orders, nichts löschen
       const b = getBases();
@@ -517,6 +579,56 @@
     if (b.dataset.t !== txt) { b.dataset.t = txt; b.innerHTML = txt; }
   }
 
+  // ---------- Erweiterte Statistik auf /statistik ----------
+  function renderStats(txt) {
+    let el = document.getElementById('ko-stats');
+    if (inFrame || !location.pathname.startsWith('/statistik')) { if (el) el.remove(); return; }
+    const dp = parseDepot(txt), st = tradeStats(getExec()), ex = getExec(), op = collectTrades();
+    const nm = id => { try { return (JSON.parse(GM_getValue('snap:' + id, 'null')) || {}).uname || id; } catch (e) { return id; } };
+    const eur = v => v == null ? '–' : (v >= 0 ? '+' : '−') + f(Math.abs(v), 2) + ' €';
+    const pct = (v, n = 1) => v == null ? '–' : f(v, n) + ' %';
+    const c = v => v == null ? '' : v >= 0 ? 'p' : 'n';
+    const row = (k, v, cl = '', tip = '') => `<tr${tip ? ` title="${tip}"` : ''}><td>${k}</td><td class="${cl}">${v}</td></tr>`;
+    const crvs = op.map(r => r.zs[0] && r.zs[0].crv).filter(x => x != null && isFinite(x));
+    const crvAll = op.flatMap(r => r.zs.filter(z => z.st !== 'ausgeführt').map(z => z.crv)).filter(x => x != null && isFinite(x));
+    const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+    const openPl = op.reduce((s, r) => s + (r.pl || 0), 0), openRisk = op.reduce((s, r) => s + (r.risk || 0), 0);
+    const first = ex.length ? Math.min(...ex.map(e => e.at)) : null;
+    const html = `<style>#ko-stats{margin:16px auto;max-width:1100px;background:#14171a;color:#e6e6e6;border-radius:12px;padding:14px 18px;font:13px/1.5 system-ui,sans-serif}
+      #ko-stats h3{margin:0 0 10px;font-size:16px;color:#64b5f6}#ko-stats .g{display:flex;gap:14px;flex-wrap:wrap}
+      #ko-stats .c{flex:1 1 300px;background:#1b1f22;border:1px solid #2e3338;border-radius:8px;padding:10px 14px}
+      #ko-stats .c b{font-size:12px;color:#8d98a3;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+      #ko-stats table{width:100%;border-collapse:collapse;margin-top:6px}#ko-stats td{padding:3px 0;border-bottom:1px solid #262a2e}
+      #ko-stats td+td{text-align:right;font-weight:600}#ko-stats .p{color:#4caf50}#ko-stats .n{color:#ff6b6b}#ko-stats .s{font-size:11.5px;color:#9aa5b0;margin-top:8px}</style>
+      <h3>Erweiterte Statistik (KO-TP-Rechner)</h3><div class="g">
+      <div class="c"><b>Gesamtentwicklung</b><table>${dp ? row('Gewinn gesamt', eur(dp.profit), c(dp.profit), 'Depot + Cash + Auszahlungen − Einzahlungen') +
+        row('Netto eingezahlt', f(dp.net, 2) + ' €', '', 'Einzahlungen − Auszahlungen') + row('Rendite auf Netto-Einlage', pct(dp.perf, 2), c(dp.perf)) +
+        row('davon offen (Positionen)', eur(openPl), c(openPl)) + row('davon realisiert (seit Aufzeichnung)', eur(st.pnl), c(st.pnl))
+        : row('Gesamtentwicklung', 'nicht gefunden')}</table></div>
+      <div class="c"><b>Abgeschlossene Trades</b><table>${st.n ? row('Anzahl', `${st.n} <span class="s">(${st.wins} / ${st.losses})</span>`) +
+        row('Winrate', pct(st.winrate), st.winrate >= 50 ? 'p' : 'n') + row('Ø Gewinn', eur(st.avgWin), 'p') + row('Ø Verlust', st.avgLoss == null ? '–' : eur(-st.avgLoss), 'n') +
+        row('Realisiertes CRV (Ø Gewinn / Ø Verlust)', st.payoff == null ? '–' : f(st.payoff), st.payoff >= 1 ? 'p' : 'n') +
+        row('Profit-Faktor', st.pf == null ? '–' : f(st.pf), st.pf >= 1 ? 'p' : 'n', 'Summe Gewinne / Summe Verluste') +
+        row('Erwartung je Trade', eur(st.exp), c(st.exp)) + row('Ø Rendite je Trade', pct(st.avgRet), c(st.avgRet), 'bezogen auf den Einsatz des Trades') +
+        row('Ø Haltedauer', st.avgHold == null ? '–' : f(st.avgHold, 1) + ' T') +
+        row('Bester Trade', `${eur(st.best.pnl)} <span class="s">${nm(st.best.isin)}</span>`, 'p') + row('Schlechtester Trade', `${eur(st.worst.pnl)} <span class="s">${nm(st.worst.isin)}</span>`, c(st.worst.pnl))
+        : row('Noch keine abgeschlossenen Trades aufgezeichnet', '')}</table></div>
+      <div class="c"><b>Offene Positionen</b><table>${row('Positionen', op.length) + row('G/V offen', eur(openPl), c(openPl)) +
+        row('Ø CRV bis Z1 (geplant)', crvs.length ? f(avg(crvs)) : '–', avg(crvs) >= 2 ? 'p' : '', 'Abstand Ziel / Abstand KO bzw. Stop, Durchschnitt über Positionen') +
+        row('Ø CRV aller offenen Ziele', crvAll.length ? f(avg(crvAll)) : '–') + row('Risiko bei KO/Stop', '−' + f(openRisk, 0) + ' €', 'n')}</table></div></div>
+      <div class="s">Trades aus ${ex.length} aufgezeichneten Ausführungen${first ? ' seit ' + new Date(first).toLocaleDateString('de-DE') : ''}${st.orphan ? `, ${st.orphan} Verkäufe ohne bekannten Kauf nicht gewertet` : ''}${st.open.length ? `, ${st.open.length} Trades noch offen` : ''}.
+        Ältere Trades: „Meine Orders“ → Reiter „Ausgeführt“ öffnen und „Mehr anzeigen“ klicken; jede angezeigte Ausführung wird gespeichert. Ohne Gebühren/Steuern, soweit nicht im Wert enthalten.</div>`;
+    if (!el) {
+      el = document.createElement('div'); el.id = 'ko-stats';
+      const hd = [...document.querySelectorAll('h1,h2,h3,h4,div,span')].find(e => e.children.length === 0 && /^Meine Gesamtentwicklung$/.test((e.textContent || '').trim()));
+      let anchor = hd;
+      while (anchor && anchor.parentElement && anchor.parentElement !== document.body && !/Performance auf Einlage/.test(anchor.textContent)) anchor = anchor.parentElement;
+      if (anchor && anchor !== document.body && anchor.parentElement) anchor.insertAdjacentElement('afterend', el);
+      else document.body.insertAdjacentElement('afterbegin', el);
+    }
+    if (el._sig !== html) { el._sig = html; el.innerHTML = html; }
+  }
+
   function renderInner() {
     orderFilter();
     if (onProdOrMask()) {
@@ -538,6 +650,7 @@
         }
       }
       injectButtons();
+      renderStats(txt);
     }
     const cur = getIsin();
     if (cur !== isin) {
@@ -959,7 +1072,7 @@
 
   // ---------- Export / Import (Übertragung auf einen anderen PC/Browser) ----------
   // Nur Nutzerdaten; Snapshots, Orders-Listen und EUR/USD entstehen beim nächsten Seitenbesuch neu.
-  const EXPORT_KEY = /^(t[123]:|p[123]$|cap$|rsk$|auto$|bases$|done:|since:|z1hit:|z1t:|slok:)/;
+  const EXPORT_KEY = /^(ex$|t[123]:|p[123]$|cap$|rsk$|auto$|bases$|done:|since:|z1hit:|z1t:|slok:)/;
   const toB64 = u8 => { let b = ''; for (let i = 0; i < u8.length; i += 0x8000) b += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
     return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   const fromB64 = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
@@ -1230,7 +1343,7 @@
   box.addEventListener('input', render);
   // Ereignisgesteuert statt Dauer-Polling: nur rechnen, wenn sich die Seite ändert (SPA lädt Inhalte nach,
   // Reiterwechsel, "Mehr anzeigen", Live-Kurse). Eigene Änderungen (Rechner, Buttons, Block, Banner) lösen nichts aus.
-  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg, #ko-ofilter')); };
+  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg, #ko-ofilter, #ko-stats')); };
   let moTimer = null, lastRun = Date.now();
   const schedule = () => {
     if (moTimer) return;
