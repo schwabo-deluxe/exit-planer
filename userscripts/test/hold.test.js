@@ -64,3 +64,17 @@ test('Eigene Orders-Seite ohne Positionstabelle: Kaufzeit der laufenden Position
   assert.equal(sa.src, 'seen'); assert.equal(new Date(sa.t).getDate(), 6);
   assert.equal(JSON.parse(store.bases)[B], 141, 'Bestände bleiben unangetastet');
 });
+
+test('Haltedauer bis 26 Wochen: W1 grün, W13 gelblich, ab W26 rot', () => {
+  const { SNAP, snapNow } = require('./harness');
+  const col = weeks => {
+    const store = { bases: J({ [A]: 95 }), ['snap:' + A]: snapNow(SNAP.cu), ['since:' + A]: J({ t: Date.now() - (weeks * 7 + 1) * 86400000, src: 'order' }) };
+    const p = page({ url: 'https://mein.finanzen-zero.net/uebersicht#ko-dashboard', store });
+    const b = [...p.w.document.querySelectorAll('#ko-dash tr')][1].querySelector('td:nth-last-child(2) b');
+    return [b.textContent, +(/hsl\((\d+)/.exec(b.getAttribute('style')) || [])[1]];
+  };
+  assert.deepEqual(col(0), ['W1', 120]);
+  const [w13, h13] = col(12); assert.equal(w13, 'W13'); assert.ok(h13 > 45 && h13 < 75);
+  assert.deepEqual(col(25), ['W26', 0]);
+  assert.deepEqual(col(40), ['W41', 0]);
+});

@@ -1,5 +1,11 @@
 # Changelog KO-TP-Rechner
 
+## 1.57
+- Haltedauer-Tracker bis 26 Wochen: Farbverlauf grün → gelb → orange → rot (W26 = Maximum, Warnung)
+
+## 1.56
+- Statistik: Knopf „Ältere Ausführungen laden“ öffnet „Meine Orders“ → „Ausgeführt“ und klickt automatisch „Mehr anzeigen“, bis die Liste vollständig ist; Fortschritt und Abbrechen im Banner
+
 ## 1.55
 - Erweiterte Statistik auf `/statistik`: Gewinn gesamt (Depot + Cash + Auszahlungen − Einzahlungen), Rendite auf Netto-Einlage, offen/realisiert
 - Abgeschlossene Trades (FIFO aus gespeicherten Ausführungen): Winrate, Ø Gewinn/Verlust, realisiertes CRV, Profit-Faktor, Erwartung, Ø Rendite, Ø Haltedauer, bester/schlechtester Trade

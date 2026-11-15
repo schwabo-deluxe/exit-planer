@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KO-Zertifikat TP-Rechner (Finanzen Invest)
 // @namespace    max.tools
-// @version      1.55
+// @version      1.57
 // @match        https://mein.finanzen-zero.net/*
 // @updateURL    https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
 // @downloadURL  https://raw.githubusercontent.com/schwabo-deluxe/exit-planer/main/userscripts/ko-tp-rechner/ko-tp-rechner.user.js
@@ -170,7 +170,7 @@
   let txtCache = '', txtAt = 0;
   // Eigene Elemente (Rechner, "Alle Trades", Orders-Block, Banner) werden beim Lesen kurz ausgeblendet, damit das Skript
   // nie seine eigenen Zahlen als Seiteninhalt liest (sonst schaukeln sich z. B. Stückzahlen über "Alle Trades" auf).
-  const OURS_SEL = '#ko-box, #ko-dash, #ko-orders-block, #ko-limit-banner, #ko-ofilter, #ko-stats';
+  const OURS_SEL = '#ko-box, #ko-dash, #ko-orders-block, #ko-limit-banner, #ko-ofilter, #ko-stats, #ko-exload';
   const pageText = () => {
     const n = Date.now();
     if (n - txtAt > 300) {
@@ -213,12 +213,12 @@
     #ko-box .ko-w{color:#f0c060;font-size:12px}
     #ko-box .ko-sum{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding:6px 8px;background:#1f2a20;border-radius:6px}
     #ko-box .ko-sum b{font-size:15px}
-    #ko-box .ko-hb{display:flex;gap:3px;margin-top:4px}#ko-box .ko-hb i{flex:1;height:7px;border-radius:2px;background:#2a2f34}
+    #ko-box .ko-hb{display:flex;gap:1px;margin-top:4px}#ko-box .ko-hb i{flex:1;height:7px;border-radius:2px;background:#2a2f34}
     #ko-box .ko-rem{background:#3a2a10;border:1px solid #8a6d1f;color:#ffd27a;border-radius:6px;padding:8px 10px;margin:0 0 10px;font-size:12.5px}
     #ko-box .ko-rem button{margin-top:6px}`;
   document.head.appendChild(css);
   box.innerHTML = `
-    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.55</span>
+    <div class="ko-hd"><span class="ko-ttl">KO-TP-Rechner v1.57</span>
       <span id="kx" title="schließen" style="cursor:pointer;display:none;padding:0 6px;font-size:16px;line-height:1">×</span></div>
     <div id="sub" class="ko-sub"></div>
     <div id="hold" title="Haltedauer · Klick: Kaufdatum setzen" style="cursor:pointer;margin:-4px 0 10px"></div>
@@ -360,12 +360,14 @@
   // Haltedauer: since:<ISIN> = { t: Kaufzeitpunkt, src: 'order' (Orders-Liste) | 'seen' (erstmals gesehen, Untergrenze) | 'manual' }
   const getSince = id => { try { return JSON.parse(GM_getValue('since:' + id, 'null')); } catch (e) { return null; } };
   const setSince = (id, t, src) => GM_setValue('since:' + id, JSON.stringify({ t, src }));
-  const WEEK_COL = ['#2e7d32', '#43a047', '#7cb342', '#c0ca33', '#fdd835', '#fb8c00', '#f4511e', '#e53935'];
+  // Haltedauer bis 26 Wochen: Farbverlauf grün (W1) → gelb (~W13) → orange → rot (W26 = Maximum)
+  const HOLD_MAX = 26;
+  const WEEK_COL = Array.from({ length: HOLD_MAX }, (_, i) => `hsl(${Math.round(120 * (1 - i / (HOLD_MAX - 1)))},${i < HOLD_MAX - 1 ? 65 : 75}%,${i < HOLD_MAX - 1 ? 45 : 50}%)`);
   const holdInfo = id => {
     const sv = getSince(id);
     if (!sv || !sv.t) return null;
     const days = Math.max(0, Math.floor((Date.now() - sv.t) / 86400000)), week = Math.floor(days / 7) + 1;
-    return { days, week, col: WEEK_COL[Math.min(week, 8) - 1], approx: sv.src === 'seen', dayOnly: sv.src === 'tl', src: sv.src, t: sv.t };
+    return { days, week, col: WEEK_COL[Math.min(week, HOLD_MAX) - 1], approx: sv.src === 'seen', dayOnly: sv.src === 'tl', src: sv.src, t: sv.t };
   };
   // Timeline je Produkt (/instrument/<ISIN>/timeline): Zeilen "Stück, Datum (Valuta) | —, Kurs €, Kauf|Verkauf: Art, ±Gesamt €, Status".
   // Liefert den Beginn der aktuellen Haltephase: erster Kauf nach dem letzten Zeitpunkt, an dem der Bestand 0 war.
@@ -579,6 +581,59 @@
     if (b.dataset.t !== txt) { b.dataset.t = txt; b.innerHTML = txt; }
   }
 
+  // ---------- Ältere Ausführungen nachladen: „Meine Orders“ → „Ausgeführt“ → „Mehr anzeigen“ automatisch klicken ----------
+  let exStep = null, exState = null;
+  const exOpts = () => { let o = null; try { o = JSON.parse(GM_getValue('exload', 'null')); } catch (e) { /* */ } return o && Date.now() - o.at < 20 * 60000 ? o : null; };
+  function exBanner(html) {
+    let b = document.getElementById('ko-exload');
+    if (!html) { if (b) b.remove(); return; }
+    if (!b) {
+      b = document.createElement('div'); b.id = 'ko-exload';
+      b.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99999;background:#1b1f22;color:#e6e6e6;border:1px solid #64b5f6;border-radius:8px;padding:8px 14px;font:13px system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.4)';
+      b.addEventListener('click', ev => {
+        const a = ev.target.dataset && ev.target.dataset.act;
+        if (a === 'exstop') { GM_setValue('exload', 'null'); exState = null; exBanner(''); }
+        if (a === 'exstats') { GM_setValue('exload', 'null'); location.href = 'https://mein.finanzen-zero.net/statistik'; }
+      });
+      document.body.appendChild(b);
+    }
+    if (b._h !== html) { b._h = html; b.innerHTML = html; }
+  }
+  const btn = (act, t) => `<button type="button" data-act="${act}" style="margin-left:8px;background:#24282c;color:#e6e6e6;border:1px solid #444a50;border-radius:6px;padding:2px 8px;cursor:pointer">${t}</button>`;
+  function exLoader() {
+    if (inFrame) return;
+    const o = exOpts();
+    if (!o || !location.pathname.startsWith('/meine-orders')) { if (exState && !o) exBanner(''); exState = null; return; }
+    if (exStep) return;                                    // Schritt läuft bereits
+    if (!exState) exState = { clicks: 0, idle: 0, n0: getExec().length, lastLen: 0, tabAt: 0, done: false };
+    if (exState.done) return;
+    exStep = setTimeout(() => {
+      exStep = null;
+      const st = exState; if (!st || !exOpts()) return;
+      const leaf = re => [...document.querySelectorAll('button, a, [role="tab"], [role="button"], span, div, li, p')]
+        .find(e => !ours(e) && re.test((e.textContent || '').trim()) && ![...e.children].some(c => re.test((c.textContent || '').trim())) && e.getClientRects().length);
+      const orders = parseOrders(pageText());
+      logExec(orders);
+      const exe = orders.filter(o2 => /ausgeführt|abgerechnet/.test(o2.status));
+      if (!exe.length) {                                   // Reiter „Ausgeführt“ noch nicht offen
+        if (Date.now() - st.tabAt > 4000) { const t = leaf(/^Ausgeführt$/); if (t) { t.click(); st.tabAt = Date.now(); } }
+        exBanner(`Lade Ausführungen … Reiter „Ausgeführt“ wird geöffnet ${btn('exstop', 'Abbrechen')}`);
+        exLoader(); return;
+      }
+      const more = leaf(/^Mehr anzeigen$/);
+      if (exe.length > st.lastLen) { st.lastLen = exe.length; st.idle = 0; } else st.idle++;
+      const added = getExec().length - st.n0;
+      if ((!more && st.idle >= 3) || st.idle >= 8 || st.clicks >= 400) {
+        st.done = true;
+        exBanner(`✓ Fertig: ${exe.length} Ausführungen in der Liste, ${added} neu gespeichert (gesamt ${getExec().length}) ${btn('exstats', 'Zur Statistik')}${btn('exstop', 'Schließen')}`);
+        return;
+      }
+      if (more) { more.click(); st.clicks++; }
+      exBanner(`Lade ältere Ausführungen … ${exe.length} in der Liste, ${added} neu gespeichert (${st.clicks}× „Mehr anzeigen“) ${btn('exstop', 'Abbrechen')}`);
+      exLoader();
+    }, 1500);
+  }
+
   // ---------- Erweiterte Statistik auf /statistik ----------
   function renderStats(txt) {
     let el = document.getElementById('ko-stats');
@@ -617,9 +672,16 @@
         row('Ø CRV bis Z1 (geplant)', crvs.length ? f(avg(crvs)) : '–', avg(crvs) >= 2 ? 'p' : '', 'Abstand Ziel / Abstand KO bzw. Stop, Durchschnitt über Positionen') +
         row('Ø CRV aller offenen Ziele', crvAll.length ? f(avg(crvAll)) : '–') + row('Risiko bei KO/Stop', '−' + f(openRisk, 0) + ' €', 'n')}</table></div></div>
       <div class="s">Trades aus ${ex.length} aufgezeichneten Ausführungen${first ? ' seit ' + new Date(first).toLocaleDateString('de-DE') : ''}${st.orphan ? `, ${st.orphan} Verkäufe ohne bekannten Kauf nicht gewertet` : ''}${st.open.length ? `, ${st.open.length} Trades noch offen` : ''}.
-        Ältere Trades: „Meine Orders“ → Reiter „Ausgeführt“ öffnen und „Mehr anzeigen“ klicken; jede angezeigte Ausführung wird gespeichert. Ohne Gebühren/Steuern, soweit nicht im Wert enthalten.</div>`;
+        <button type="button" data-act="exload" style="margin-left:6px;background:#24282c;color:#e6e6e6;border:1px solid #64b5f6;border-radius:6px;padding:2px 10px;cursor:pointer">Ältere Ausführungen laden</button>
+        <br>Öffnet „Meine Orders“ → „Ausgeführt“ und klickt automatisch „Mehr anzeigen“, bis alles geladen ist (nur Lesen). Ohne Gebühren/Steuern, soweit nicht im Wert enthalten.</div>`;
     if (!el) {
       el = document.createElement('div'); el.id = 'ko-stats';
+      el.addEventListener('click', ev => {
+        if (ev.target.dataset.act !== 'exload') return;
+        GM_setValue('ofilter', 'null');                  // Filter würde Zeilen ausblenden
+        GM_setValue('exload', JSON.stringify({ at: Date.now() }));
+        location.href = 'https://mein.finanzen-zero.net/meine-orders';
+      });
       const hd = [...document.querySelectorAll('h1,h2,h3,h4,div,span')].find(e => e.children.length === 0 && /^Meine Gesamtentwicklung$/.test((e.textContent || '').trim()));
       let anchor = hd;
       while (anchor && anchor.parentElement && anchor.parentElement !== document.body && !/Performance auf Einlage/.test(anchor.textContent)) anchor = anchor.parentElement;
@@ -631,6 +693,7 @@
 
   function renderInner() {
     orderFilter();
+    exLoader();
     if (onProdOrMask()) {
       forcedIsin = '';
       const tm = location.pathname.match(/^\/instrument\/([A-Z0-9]{12})\/timeline/);
@@ -738,11 +801,11 @@
     pcs.forEach((v, i) => gset('p' + (i + 1), v));
     const qs = lastTotal ? plan(lastTotal, pcs) : [0, 0, 0];
     const src = ui.src === 'aktie' ? 'Kurs' : ui.src === 'aktie-fx' ? 'aus €-Kurs, EUR/USD ' + f(d.fxo, 4) : ui.src === 'basiswert' ? 'live' : ui.src === 'preis' ? 'aus Preis, EUR/USD ' + f(d.fxo, 4) : d.calcAt ? 'Stand ' + hm(d.calcAt) : '';
-    // Haltedauer-Tracker (Wochen 1-8)
+    // Haltedauer-Tracker (Wochen 1-26)
     const hi = holdInfo(isin);
     if (hi) {
       const segs = WEEK_COL.map((c, i) => `<i style="${i < hi.week ? 'background:' + c : ''}"></i>`).join('');
-      $('hold').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px"><span>Haltedauer <b style="color:${hi.col}">${hi.approx ? '≥ ' : ''}${hi.days} T · Woche ${hi.week}${hi.week > 8 ? ' ⚠' : ''}</b></span>
+      $('hold').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px"><span>Haltedauer <b style="color:${hi.col}">${hi.approx ? '≥ ' : ''}${hi.days} T · Woche ${hi.week}/${HOLD_MAX}${hi.week >= HOLD_MAX ? ' ⚠ Maximum' : ''}</b></span>
         <span class="ko-s">seit ${new Date(hi.t).toLocaleDateString('de-DE')}${hi.approx ? ' (erstmals gesehen)' : hi.dayOnly ? ' (Timeline, Valuta)' : hi.src === 'manual' ? ' (manuell)' : ''}</span></div><div class="ko-hb">${segs}</div>${hi.approx ? '<div class="ko-s" style="color:#f0c060">⚠ Kaufdatum unbekannt: Timeline des Produkts oder Übersicht → Orders → „Ausgeführt“ öffnen, oder hier klicken</div>' : hi.dayOnly ? '<div class="ko-s">Genaue Kaufzeit: Übersicht → Orders → „Ausgeführt“ öffnen</div>' : ''}`;
     } else $('hold').innerHTML = '<span class="ko-s">Haltedauer unbekannt · Klick: Kaufdatum setzen</span>';
     // Reminder: Z1 erreicht -> Stop-Loss nachziehen
@@ -1343,7 +1406,7 @@
   box.addEventListener('input', render);
   // Ereignisgesteuert statt Dauer-Polling: nur rechnen, wenn sich die Seite ändert (SPA lädt Inhalte nach,
   // Reiterwechsel, "Mehr anzeigen", Live-Kurse). Eigene Änderungen (Rechner, Buttons, Block, Banner) lösen nichts aus.
-  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg, #ko-ofilter, #ko-stats')); };
+  const ours = n => { const e = n && (n.nodeType === 1 ? n : n.parentElement); return !!e && (box.contains(e) || !!e.closest('.ko-open, #ko-orders-block, #ko-limit-banner, #ko-dash, #ko-bg, #ko-ofilter, #ko-stats, #ko-exload')); };
   let moTimer = null, lastRun = Date.now();
   const schedule = () => {
     if (moTimer) return;

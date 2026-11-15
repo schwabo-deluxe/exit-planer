@@ -48,3 +48,25 @@ test('Ausführungen werden aus "Ausgeführt" gespeichert (ohne Dubletten) und au
   assert.match(t, /Bester Trade\s*\+100,00 €/);
   assert.equal(p.$('#ko-stats').previousElementSibling.tagName, 'SECTION', 'Block steht unter der Gesamtentwicklung');
 });
+
+test('Ältere Ausführungen laden: öffnet "Ausgeführt", klickt "Mehr anzeigen" bis zum Ende, speichert alles', async () => {
+  const { sleep } = require('./harness');
+  const store = { exload: J({ at: Date.now() }) };
+  const r = (n) => `<div class="r"><span>X</span><span>${A}</span><span>${n}</span><span>abgerechnet</span><span>Markt</span><span>5,00 €</span><span>${String(n).padStart(2, '0')}.10.26</span><span>10:00:00</span><span>Kauf</span><span>−${n * 5},00 €</span></div>`;
+  const html = '<div><span>Offen</span><span id="tab">Ausgeführt</span><span>Gestrichen</span></div><div id="list"><span>Aktuell keine offenen Orders</span></div>';
+  const p = page({ url: 'https://mein.finanzen-zero.net/meine-orders', store, text: 'dom', html });
+  const doc = p.w.document;
+  let pageNo = 0;
+  doc.getElementById('tab').addEventListener('click', () => {
+    doc.getElementById('list').innerHTML = r(1) + r(2) + '<button id="more">Mehr anzeigen</button>';
+  });
+  doc.addEventListener('click', ev => {
+    if (ev.target.id !== 'more') return;
+    pageNo++;
+    ev.target.insertAdjacentHTML('beforebegin', r(2 + 2 * pageNo - 1) + r(2 + 2 * pageNo));
+    if (pageNo === 2) ev.target.remove();
+  });
+  for (let i = 0; i < 20 && !/Fertig/.test((doc.getElementById('ko-exload') || {}).textContent || ''); i++) await sleep(1000);
+  assert.match(doc.getElementById('ko-exload').textContent, /Fertig: 6 Ausführungen/);
+  assert.equal(JSON.parse(store.ex).length, 6);
+});
